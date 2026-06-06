@@ -96,7 +96,7 @@ jobs:
           echo "✅ Semua migration sudah berjalan."
 
   deploy-production:
-    name: Deploy to akuntansi.wijayaplywoods.com
+    name: Deploy to telur.wijayaplywoods.com
     needs: laravel-tests
     # HANYA jalan jika kamu membuat TAG (misal v1.0)
     if: startsWith(github.ref, 'refs/tags/v')
