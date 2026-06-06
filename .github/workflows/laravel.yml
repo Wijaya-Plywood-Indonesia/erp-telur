@@ -101,7 +101,7 @@ jobs:
     # HANYA jalan jika kamu membuat TAG (misal v1.0)
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    # environment: production
+    environment: production
 
     steps:
       - uses: actions/checkout@v4
