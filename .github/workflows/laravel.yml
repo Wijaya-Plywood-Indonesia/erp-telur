@@ -137,11 +137,16 @@ jobs:
           (cd "$BUILD_DIR" && zip -r ../deploy.zip . -q)
 
       - name: Debug Secret
+        env:
+          KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.SSH_HOST }}
         run: |
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "Secret kosong!"
+          echo "KEY length: ${#KEY}"
+          echo "HOST length: ${#HOST}"
+          if [ -z "$KEY" ]; then
+            echo "❌ SSH_PRIVATE_KEY KOSONG"
           else
-            echo "Secret ditemukan dan panjangnya: ${#SSH_PRIVATE_KEY}"
+            echo "✅ SSH_PRIVATE_KEY ada"
           fi
 
       - name: Upload to Server
