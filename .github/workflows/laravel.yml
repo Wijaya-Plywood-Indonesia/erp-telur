@@ -105,13 +105,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Debug Secret
-        run: |
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "Secret kosong!"
-          else
-            echo "Secret ditemukan dan panjangnya: ${#SSH_PRIVATE_KEY}"
-          fi
       - name: Setup PHP & Node
         uses: shivammathur/setup-php@v2
         with:
@@ -142,6 +135,14 @@ jobs:
             ./ "$BUILD_DIR/"
             
           (cd "$BUILD_DIR" && zip -r ../deploy.zip . -q)
+
+      - name: Debug Secret
+        run: |
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "Secret kosong!"
+          else
+            echo "Secret ditemukan dan panjangnya: ${#SSH_PRIVATE_KEY}"
+          fi
 
       - name: Upload to Server
         uses: appleboy/scp-action@v0.1.7
