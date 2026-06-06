@@ -25,7 +25,7 @@ class StockOpnamePage extends Page implements HasForms
     use HasPageShield;
     public static ?string $navigationLabel = 'Stock Opname';
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
-    protected static ?int $navigationSort = 10;
+    protected static ?int $navigationSort = 5;
 
     public function getView(): string
     {
@@ -258,9 +258,9 @@ class StockOpnamePage extends Page implements HasForms
         if ($this->opname->isDraft()) {
             DB::transaction(function () {
                 $barangs = Barang::whereHas('subAnakAkun', function ($query) {
-                        $query->whereNotNull('kode_sub_anak_akun')
-                            ->where('kode_sub_anak_akun', '!=', '');
-                    })
+                    $query->whereNotNull('kode_sub_anak_akun')
+                        ->where('kode_sub_anak_akun', '!=', '');
+                })
                     ->get();
 
                 $existingBarangIds = $this->opname->details()->pluck('barang_id')->toArray();

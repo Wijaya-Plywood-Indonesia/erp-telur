@@ -21,6 +21,12 @@ class StokBarangTokoResource extends Resource
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
     // protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        // Jika return false, menu akan hilang dari sidebar
+        return false;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return StokBarangTokoForm::configure($schema);

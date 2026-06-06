@@ -26,6 +26,8 @@ class SuratJalanResource extends Resource
     // protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $recordTitleAttribute = 'no_surat_jalan';
 
     public static function form(Schema $schema): Schema
@@ -46,7 +48,7 @@ class SuratJalanResource extends Resource
     public static function getRelations(): array
     {
         return [
-                //
+            //
             DetailsRelationManager::class,
         ];
     }

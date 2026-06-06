@@ -11,8 +11,9 @@ use UnitEnum;
 class StokMatrix extends Page
 {
     protected string $view = 'filament.pages.stok-matrix';
-    protected static string|UnitEnum|null $navigationGroup = 'Matrix Barang';
+    protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
     public static ?string $navigationLabel = 'Matrix Barang';
+    protected static ?int $navigationSort = 4;
 
     protected $barangs;
     protected $stok;
@@ -97,4 +98,3 @@ class StokMatrix extends Page
         ];
     }
 }
-

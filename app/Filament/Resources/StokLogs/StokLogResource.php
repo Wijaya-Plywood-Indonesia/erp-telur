@@ -23,6 +23,12 @@ class StokLogResource extends Resource
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
     protected static ?string $recordTitleAttribute = 'toko_id';
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        // Jika return false, menu akan hilang dari sidebar
+        return false;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return StokLogForm::configure($schema);

@@ -22,6 +22,12 @@ class PenyesuaianStok extends Page implements HasForms
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
     protected string $view = 'filament.pages.penyesuaian-stok';
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        // Jika return false, menu akan hilang dari sidebar
+        return false;
+    }
+
     public ?array $data = [];
 
     protected function getFormStatePath(): string
@@ -127,8 +133,7 @@ class PenyesuaianStok extends Page implements HasForms
                 ->dehydrated(false),
 
             Textarea::make('catatan')
-                ->label('Catatan Tambahan')
-            ,
+                ->label('Catatan Tambahan'),
         ];
     }
 

@@ -23,6 +23,7 @@ class BarangMasukResource extends Resource
     protected static ?string $model = BarangMasuk::class;
 
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $recordTitleAttribute = 'BarangMasuk';
 

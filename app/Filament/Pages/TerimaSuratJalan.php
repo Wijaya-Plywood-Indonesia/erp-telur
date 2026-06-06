@@ -21,6 +21,7 @@ class TerimaSuratJalan extends Page implements HasForms
 
     public static ?string $navigationLabel = 'Terima Barang';
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';
+    protected static ?int $navigationSort = 3;
 
     public function getView(): string
     {
