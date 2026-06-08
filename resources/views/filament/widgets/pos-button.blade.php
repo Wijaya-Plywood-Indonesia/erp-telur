@@ -6,8 +6,7 @@
             size="xl"
             x-on:click="window.location.href='{{
                 route('filament.admin.resources.penjualans.pos')
-            }}'"
-        >
+            }}'">
             BUKA POINT OF SALES (KASIR)
         </x-filament::button>
     </x-filament::section>
