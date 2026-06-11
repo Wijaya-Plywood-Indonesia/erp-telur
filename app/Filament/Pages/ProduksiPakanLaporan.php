@@ -50,6 +50,7 @@ class ProduksiPakanLaporan extends Page
     public bool $showValidateButton = false;
 
     protected bool $isRecalculating = false;
+    private ?int $satuanSakId = null;
 
     /* ═══════════════════════════════════════════════════════════════════════
     |  SISTEM LOGGING & SESSION
@@ -86,6 +87,15 @@ class ProduksiPakanLaporan extends Page
         Session::forget($this->sessionKey());
 
         $this->loadDataByDate();
+    }
+
+    private function getSatuanSakId(): ?int
+    {
+        if ($this->satuanSakId === null) {
+            $satuanSak = Satuan::whereRaw('LOWER(nama_satuan) = ?', ['sak'])->first();
+            $this->satuanSakId = $satuanSak?->id;
+        }
+        return $this->satuanSakId;
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
@@ -156,17 +166,20 @@ class ProduksiPakanLaporan extends Page
         $p  = (float) $item->keluar_pullet;
         $l1 = (float) $item->keluar_l1;
         $l2 = (float) $item->keluar_l2;
+        $masuk = (float) $item->masuk;
 
         // Hitung balik ke sak untuk tampilan input
         if ($konversi > 1) {
             $pSak  = round($p  / $konversi, 4);
             $l1Sak = round($l1 / $konversi, 4);
             $l2Sak = round($l2 / $konversi, 4);
+            $masukSak = round($masuk / $konversi, 4);
         } else {
             // Tidak ada konversi sak, input langsung pakai p/l1/l2
             $pSak  = $p;
             $l1Sak = $l1;
             $l2Sak = $l2;
+            $masukSak = $masuk;
         }
 
         return [
@@ -177,6 +190,7 @@ class ProduksiPakanLaporan extends Page
             'nama'        => $item->barang?->nama_barang,
             'awal'         => (float) $item->stok_awal,
             'masuk'        => (float) $item->masuk,
+            'masuk_sak'    => $masukSak,
             'konversi_sak' => $konversi,
             'p_sak'        => $pSak,
             'l1_sak'       => $l1Sak,
@@ -279,7 +293,6 @@ class ProduksiPakanLaporan extends Page
 
         foreach ($semuaBarang as $b) {
             $namaUpper     = strtoupper($b->nama_barang);
-            $kategoriLower = strtolower($b->kategori->nama_kategori ?? '');
             $isCampuran    = str_contains($namaUpper, 'PULLET')
                 || str_contains($namaUpper, 'PULET')
                 || str_contains($namaUpper, 'LAYER');
@@ -312,6 +325,7 @@ class ProduksiPakanLaporan extends Page
             } else {
                 $this->mentahState[] = array_merge($base, [
                     'masuk'        => 0.0,
+                    'masuk_sak'    => 0.0,
                     'konversi_sak' => $this->getKonversiSak($b->id),
                     'p_sak'        => 0,
                     'l1_sak'       => 0,
@@ -324,11 +338,11 @@ class ProduksiPakanLaporan extends Page
 
     private function getKonversiSak($barangId): float
     {
-        $satuanSak = Satuan::whereRaw('LOWER(nama_satuan) = ?', ['sak'])->first();
-        if (!$satuanSak) return 1;
+        $satuanSakId = $this->getSatuanSakId();
+        if (!$satuanSakId) return 1;
 
         $konversi = SatuanKonversi::where('id_barang', $barangId)
-            ->where('id_satuan_asal', $satuanSak->id)
+            ->where('id_satuan_asal', $satuanSakId)
             ->aktif()
             ->first();
 
@@ -440,6 +454,20 @@ class ProduksiPakanLaporan extends Page
             }
         }
 
+        if (preg_match('/^mentahState\.(\d+)\.masuk_sak$/', $propertyName, $m)) {
+            $idx      = (int) $m[1];
+            $faktor   = (float) ($this->mentahState[$idx]['konversi_sak'] ?? 1);
+            $nilaiSak = max(0, (float) ($this->mentahState[$idx]['masuk_sak'] ?? 0));
+
+            // Pastikan masuk_sak tidak negatif
+            $this->mentahState[$idx]['masuk_sak'] = $nilaiSak;
+
+            // Konversi ke kg dan simpan ke masuk
+            $this->mentahState[$idx]['masuk'] = $faktor > 1
+                ? $nilaiSak * $faktor
+                : $nilaiSak;
+        }
+
         $this->isRecalculating = true;
         $this->recalculateAll();
         $this->saveToSession();
@@ -539,6 +567,7 @@ class ProduksiPakanLaporan extends Page
                 $this->mentahState[$idx]['l1_sak'] = (float) ($saved['l1_sak'] ?? 0);
                 $this->mentahState[$idx]['l2_sak'] = (float) ($saved['l2_sak'] ?? 0);
                 $this->mentahState[$idx]['masuk']  = (float) ($saved['masuk']  ?? 0);
+                $this->mentahState[$idx]['masuk_sak'] = (float) ($saved['masuk_sak'] ?? 0);
             }
         }
 
@@ -787,33 +816,31 @@ class ProduksiPakanLaporan extends Page
             $kuantitasSak = (float) ($kuantitasMap[$item['barang_id']] ?? 0);
             if ($kuantitasSak <= 0) continue;
 
-            if ((float) ($this->mentahState[$idx][$jenis . '_sak'] ?? 0) !== 0.0) continue;
+            $konversi      = (float) ($item['konversi_sak'] ?? 1);
+            $nilaiSekarang = (float) ($item[$jenis . '_sak'] ?? 0);
 
-            $konversi    = (float) ($this->mentahState[$idx]['konversi_sak'] ?? 1);
-            $stokAwal    = (float) ($this->mentahState[$idx]['awal']         ?? 0);
-            $masukMentah = (float) ($this->mentahState[$idx]['masuk']        ?? 0); // ← tambah
+            // ── Tentukan label satuan untuk pesan notifikasi ──
+            $labelSatuan = $konversi > 1 ? 'sak' : ($item['satuan'] ?? 'kg');
 
-            $sudahTerpakaiSak = 0.0;
-            foreach (['p', 'l1', 'l2'] as $k) {
-                if ($k !== $jenis) {
-                    $nilaiKgLain = (float) ($this->mentahState[$idx][$k] ?? 0);
-                    $sudahTerpakaiSak += $konversi > 1 ? $nilaiKgLain / $konversi : $nilaiKgLain;
-                }
-            }
+            // ── Skip jika sudah penuh sesuai komposisi ──
+            if ($nilaiSekarang >= $kuantitasSak) continue;
 
-            // masuk juga dalam satuan sak (unit dasar mentah), ikut menambah stok tersedia
-            $masukSak        = $konversi > 1 ? $masukMentah / $konversi : $masukMentah;
-            $stokTersediaSak = $stokAwal + $masukSak - $sudahTerpakaiSak; // ← masuk ikut
+            // ── Stok tersedia dari akhir + kembalikan nilai jenis sekarang ──
+            $akhir           = (float) ($item['akhir'] ?? 0);
+            $stokTersediaSak = $akhir + $nilaiSekarang;
 
             if ($kuantitasSak > $stokTersediaSak) {
                 $nilaiSakFinal = max(0, $stokTersediaSak);
                 $nilaiKgFinal  = $konversi > 1 ? $nilaiSakFinal * $konversi : $nilaiSakFinal;
 
+                // ── Pesan notifikasi dengan satuan yang benar ──
                 $stokKurangItems[] = sprintf(
-                    '%s (butuh %s sak, tersedia %s sak)',
+                    '%s (butuh %s %s, tersedia %s %s)',
                     $item['nama'],
                     number_format($kuantitasSak, 2),
-                    number_format($stokTersediaSak, 2)
+                    $labelSatuan,
+                    number_format($stokTersediaSak, 2),
+                    $labelSatuan,
                 );
             } else {
                 $nilaiSakFinal = $kuantitasSak;
@@ -858,8 +885,8 @@ class ProduksiPakanLaporan extends Page
                 ->send();
         } else {
             Notification::make()
-                ->title("Kolom {$labelJenis} Sudah Terisi")
-                ->body('Semua baris sudah diisi manual, tidak ada yang ditimpa.')
+                ->title("Kolom {$labelJenis} Sudah Penuh")
+                ->body('Semua bahan sudah terisi sesuai komposisi.')
                 ->info()
                 ->send();
         }
