@@ -340,7 +340,7 @@
                                 <td class="px-2 py-1.5 text-center">
                                     <input
                                         type="number"
-                                        wire:model.lazy="mentahState.{{ $idx }}.masuk"
+                                        wire:model.lazy="mentahState.{{ $idx }}.masuk_sak"
                                         {{ !$canEdit ? 'disabled' : '' }}
                                         min="0"
                                         step="any"

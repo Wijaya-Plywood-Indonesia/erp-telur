@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\Log;
 class ProduksiPakanService
 {
     // ── Akun Hardcoded ──────────────────────────────────────────────────────
-    const KODE_HUTANG_GAJI        = '2210-01';
-    const KODE_HUTANG_LISTRIK     = '2210-02';
+    const KODE_HUTANG_GAJI    = '2210-01';
+    const KODE_HUTANG_LISTRIK = '2210-02';
 
     // Akun Penyesuaian Selisih Produksi
     const KODE_PENDAPATAN_KELEBIHAN_PAKAN = '4400-01';
@@ -49,14 +49,14 @@ class ProduksiPakanService
 
         $adaMentah = $produksi->pakanMentahs->contains(
             fn($i) => (float)$i->keluar_pullet > 0
-                || (float)$i->keluar_l1     > 0
-                || (float)$i->keluar_l2     > 0
+                || (float)$i->keluar_l1 > 0
+                || (float)$i->keluar_l2 > 0
         );
 
         $adaCampuranKeluar = $produksi->pakanCampurans->contains(
             fn($i) => (float)$i->keluar_pullet > 0
-                || (float)$i->keluar_l1     > 0
-                || (float)$i->keluar_l2     > 0
+                || (float)$i->keluar_l1 > 0
+                || (float)$i->keluar_l2 > 0
         );
 
         DB::transaction(function () use ($produksi, $userId, $adaMentah, $adaCampuranKeluar) {
@@ -78,38 +78,86 @@ class ProduksiPakanService
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
-    |  PROSES 1 — Bahan Mentah → Pakan Campuran
+    |  PROSES 1 — Bahan Mentah → Pakan Campuran (SATU JURNAL)
+    |
+    |  Struktur jurnal (mengikuti foto):
+    |  D: Setiap Pakan Campuran yang dihasilkan (Layer 1, Layer 2, Pullet)
+    |  K: Setiap Bahan Mentah yang terpakai (total semua kandang)
+    |  K: Hutang Gaji
+    |  K: Hutang Listrik
+    |  K/D: Selisih balancing jika ada
     ═══════════════════════════════════════════════════════════════════════ */
 
     private function buatJurnalProses1(ProduksiPakan $produksi, int $userId): void
     {
-        $tgl  = $produksi->tanggal_produksi->toDateString();
-        $nota = 'PROD-' . $produksi->id . '-' . $tgl;
-        $ket  = "Produksi Pakan | Tgl: {$tgl}";
+        $tgl      = $produksi->tanggal_produksi->toDateString();
+        $nota     = 'PROD-' . $produksi->id . '-' . $tgl;
+        $ket      = "Produksi Pakan | Tgl: {$tgl}";
+        $noJurnal = $this->nextNoJurnal() ?? 0;
 
-        // Kelompokkan bahan mentah yang terpakai
-        $mentahTerpakai = $produksi->pakanMentahs->filter(
-            fn($i) => (float)$i->keluar_pullet > 0
-                || (float)$i->keluar_l1     > 0
-                || (float)$i->keluar_l2     > 0
-        );
+        /**
+         * LANGKAH 1: Hitung total per bahan mentah (gabungkan semua kandang)
+         *
+         * Kenapa kita gabung dulu sebelum buat jurnal?
+         * Karena kita ingin 1 baris kredit per bahan mentah, bukan
+         * 3 baris (pullet + l1 + l2) untuk bahan yang sama.
+         *
+         * Contoh hasil $totalPerMentah:
+         * [
+         *   barang_id_1 => ['barang' => ..., 'totalKg' => 2600, 'totalNilai' => 3.380.000],
+         *   barang_id_2 => ['barang' => ..., 'totalKg' => 800,  'totalNilai' => 320.000],
+         * ]
+         */
+        // ... di dalam buatJurnalProses1 ...
 
-        // Iterasi per kandang
+        $totalPerMentah = [];
+        foreach ($produksi->pakanMentahs as $mentah) {
+            $jumlahKg = (float)$mentah->keluar_pullet
+                + (float)$mentah->keluar_l1
+                + (float)$mentah->keluar_l2;
+
+            if ($jumlahKg <= 0) continue;
+
+            $barang   = $mentah->barang;
+            $id       = $barang->id;
+            $harga    = (float)($barang->harga_jual ?? 0);
+            $konversi = $this->getKonversiSak($id); // Sekarang mengembalikan 50 jika berupa Sak
+
+            // Menggunakan round() untuk menghindari miss desimal di pembukuan
+            $nilaiTambahan = round($jumlahKg * $harga, 2);
+
+            if (!isset($totalPerMentah[$id])) {
+                $totalPerMentah[$id] = [
+                    'barang'     => $barang,
+                    'totalKg'    => 0.0,
+                    'totalNilai' => 0.0,
+                    'harga'      => $harga,
+                    'konversi'   => $konversi,
+                ];
+            }
+
+            $totalPerMentah[$id]['totalKg']    += $jumlahKg;
+            $totalPerMentah[$id]['totalNilai'] += $nilaiTambahan;
+        }
+
+        /**
+         * LANGKAH 2: Hitung total nilai per pakan campuran yang dihasilkan
+         *
+         * Setiap kandang (pullet/l1/l2) menghasilkan pakan campuran.
+         * Total bahan mentah yang masuk = nilai debit pakan campuran itu.
+         */
         $kandangs = [
             'pullet' => ['field' => 'keluar_pullet', 'label' => 'Pullet'],
             'l1'     => ['field' => 'keluar_l1',     'label' => 'Layer 1'],
             'l2'     => ['field' => 'keluar_l2',     'label' => 'Layer 2'],
         ];
 
+        // Map: kandangKey => ['campuran' => model, 'totalKgMasuk' => float]
+        $hasilPerKandang = [];
+
         foreach ($kandangs as $kandangKey => $kandang) {
             $field = $kandang['field'];
-            $label = $kandang['label'];
 
-            // Variabel Penampung Debit Kredit
-            $totalDebit  = 0;
-            $totalKredit = 0;
-
-            // Cari pakan campuran yang sesuai kandang ini
             $campuranKandang = $produksi->pakanCampurans->first(function ($item) use ($kandangKey) {
                 $nama = strtoupper($item->barang?->nama_barang ?? '');
                 return match ($kandangKey) {
@@ -120,22 +168,39 @@ class ProduksiPakanService
                 };
             });
 
-            // Hitung total bahan mentah yang masuk ke kandang ini
-            $totalMasukKandang = $mentahTerpakai->sum(fn($i) => (float)$i->$field);
+            // Hitung total bahan mentah yang masuk ke kandang ini (dalam kg)
+            $totalMasukKandang = $produksi->pakanMentahs->sum(
+                fn($i) => (float)$i->$field
+            );
+
             if ($totalMasukKandang <= 0) continue;
 
-            // Akun Debet — Pakan Campuran kandang ini
-            $barangCampuran   = $campuranKandang?->barang;
+            $hasilPerKandang[$kandangKey] = [
+                'campuran'      => $campuranKandang,
+                'totalKgMasuk'  => $totalMasukKandang,
+                'label'         => $kandang['label'],
+            ];
+        }
+
+        if (empty($hasilPerKandang)) return;
+
+        // ── Penampung total debit & kredit untuk balancing ──────────────
+        $totalDebit  = 0.0;
+        $totalKredit = 0.0;
+        $urutItem    = 1;
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  DEBIT: Pakan Campuran yang dihasilkan (Layer 1, Layer 2, Pullet)
+        |  Setiap kandang → satu baris debit
+        ───────────────────────────────────────────────────────────────── */
+        foreach ($hasilPerKandang as $kandangKey => $hasil) {
+            $barangCampuran   = $hasil['campuran']?->barang;
             $kodeAkunCampuran = $barangCampuran?->subAnakAkun?->kode_sub_anak_akun ?? '1500-00';
             $namaAkunCampuran = $this->getNamaAkun($kodeAkunCampuran)
-                ?: ($barangCampuran?->nama_barang ?? "Pakan Campuran {$label}");
+                ?: ($barangCampuran?->nama_barang ?? "Pakan Campuran {$hasil['label']}");
             $hargaCampuran    = (float)($barangCampuran?->harga_jual ?? 0);
-            $nilaiCampuran    = $totalMasukKandang * $hargaCampuran;
+            $nilaiCampuran    = $hasil['totalKgMasuk'] * $hargaCampuran;
 
-            $noJurnal = $this->nextNoJurnal();
-            $ketKandang = "{$ket} | {$label}";
-
-            // ── D: Pakan Campuran bertambah ──────────────────────────────
             $hDebit = $this->buatHeader([
                 'no_jurnal_pembantu' => $this->nextNomorPembantu(),
                 'tgl_transaksi'      => $tgl,
@@ -145,185 +210,214 @@ class ProduksiPakanService
                 'no_akun'            => $kodeAkunCampuran,
                 'nama_akun'          => $namaAkunCampuran,
                 'map'                => 'd',
-                'keterangan'         => $ketKandang,
+                'keterangan'         => $ket,
                 'no_dokumen'         => $nota,
                 'total_nilai'        => $nilaiCampuran,
                 'dibuat_oleh'        => $userId,
             ]);
 
             $this->buatItem($hDebit->id, [
-                'urut'        => 1,
-                'nama_barang' => $barangCampuran?->nama_barang ?? "Pakan {$label}",
+                'urut'        => $urutItem++,
+                'nama_barang' => $barangCampuran?->nama_barang ?? "Pakan {$hasil['label']}",
                 'no_dokumen'  => $nota,
-                'keterangan'  => "Hasil produksi {$label}",
-                'banyak'      => $totalMasukKandang,
+                'keterangan'  => "Hasil produksi {$hasil['label']}",
+                'banyak'      => $hasil['totalKgMasuk'],
                 'harga'       => $hargaCampuran,
                 'jumlah'      => $nilaiCampuran,
                 'created_by'  => $userId,
                 'updated_by'  => $userId,
             ]);
 
-            $totalDebit += $nilaiCampuran; // Tambahkan ke penampung debit
-
-            // ── K: Bahan Mentah per bahan per kandang ────────────────────
-            $urut = 1;
-            foreach ($mentahTerpakai as $mentah) {
-                $jumlahKg = (float)$mentah->$field;
-                if ($jumlahKg <= 0) continue;
-
-                $barangMentah   = $mentah->barang;
-                $kodeAkunMentah = $barangMentah?->subAnakAkun?->kode_sub_anak_akun ?? '1500-01';
-                $namaAkunMentah = $this->getNamaAkun($kodeAkunMentah)
-                    ?: ($barangMentah?->nama_barang ?? 'Bahan Mentah');
-                $hargaMentah    = (float)($barangMentah?->harga_jual ?? 0);
-                $nilaiMentah    = $jumlahKg * $hargaMentah;
-
-                // Konversi balik kg → sak untuk qty item
-                $konversi    = $this->getKonversiSak($barangMentah?->id);
-                $jumlahSak   = $konversi > 1 ? $jumlahKg / $konversi : $jumlahKg;
-
-                $hKredit = $this->buatHeader([
-                    'no_jurnal_pembantu' => $this->nextNomorPembantu(),
-                    'tgl_transaksi'      => $tgl,
-                    'jenis_transaksi'    => 'pk',
-                    'modul_asal'         => 'produksi_pakan',
-                    'jurnal'             => $noJurnal,
-                    'no_akun'            => $kodeAkunMentah,
-                    'nama_akun'          => $namaAkunMentah,
-                    'map'                => 'k',
-                    'keterangan'         => $ketKandang,
-                    'no_dokumen'         => $nota,
-                    'total_nilai'        => $nilaiMentah,
-                    'dibuat_oleh'        => $userId,
-                ]);
-
-                $this->buatItem($hKredit->id, [
-                    'urut'        => $urut++,
-                    'nama_barang' => $barangMentah?->nama_barang,
-                    'no_dokumen'  => $nota,
-                    'keterangan'  => "Bahan {$barangMentah?->nama_barang} → {$label}",
-                    'banyak'      => $jumlahSak,
-                    'harga'       => $hargaMentah,
-                    'jumlah'      => $nilaiMentah,
-                    'created_by'  => $userId,
-                    'updated_by'  => $userId,
-                ]);
-
-                $totalKredit += $nilaiMentah; // Tambahkan ke penampung kredit
-            }
-
-            // ── K: Hutang Gaji Pegawai ───────────────────────────────────
-            $hGaji = $this->buatHeader([
-                'no_jurnal_pembantu' => $this->nextNomorPembantu(),
-                'tgl_transaksi'      => $tgl,
-                'jenis_transaksi'    => 'pk',
-                'modul_asal'         => 'produksi_pakan',
-                'jurnal'             => $noJurnal,
-                'no_akun'            => self::KODE_HUTANG_GAJI,
-                'nama_akun'          => $this->getNamaAkun(self::KODE_HUTANG_GAJI) ?: 'Hutang Gaji Pegawai Kandang',
-                'map'                => 'k',
-                'keterangan'         => "Hutang Gaji Pegawai | {$ketKandang}",
-                'no_dokumen'         => $nota,
-                'total_nilai'        => self::NILAI_HUTANG_GAJI,
-                'dibuat_oleh'        => $userId,
-            ]);
-
-            $this->buatItem($hGaji->id, [
-                'urut'        => 1,
-                'no_dokumen'  => $nota,
-                'keterangan'  => "Akrual gaji pegawai kandang — {$label}",
-                'banyak'      => 1,
-                'harga'       => self::NILAI_HUTANG_GAJI,
-                'jumlah'      => self::NILAI_HUTANG_GAJI,
-                'created_by'  => $userId,
-                'updated_by'  => $userId,
-            ]);
-
-            $totalKredit += self::NILAI_HUTANG_GAJI;
-
-            // ── K: Hutang Listrik ────────────────────────────────────────
-            $hListrik = $this->buatHeader([
-                'no_jurnal_pembantu' => $this->nextNomorPembantu(),
-                'tgl_transaksi'      => $tgl,
-                'jenis_transaksi'    => 'pk',
-                'modul_asal'         => 'produksi_pakan',
-                'jurnal'             => $noJurnal,
-                'no_akun'            => self::KODE_HUTANG_LISTRIK,
-                'nama_akun'          => $this->getNamaAkun(self::KODE_HUTANG_LISTRIK) ?: 'Hutang Listrik Kandang',
-                'map'                => 'k',
-                'keterangan'         => "Hutang Listrik | {$ketKandang}",
-                'no_dokumen'         => $nota,
-                'total_nilai'        => self::NILAI_HUTANG_LISTRIK,
-                'dibuat_oleh'        => $userId,
-            ]);
-
-            $this->buatItem($hListrik->id, [
-                'urut'        => 1,
-                'no_dokumen'  => $nota,
-                'keterangan'  => "Akrual beban listrik kandang — {$label}",
-                'banyak'      => 1,
-                'harga'       => self::NILAI_HUTANG_LISTRIK,
-                'jumlah'      => self::NILAI_HUTANG_LISTRIK,
-                'created_by'  => $userId,
-                'updated_by'  => $userId,
-            ]);
-
-            $totalKredit += self::NILAI_HUTANG_LISTRIK;
-
-            // ── MENGHITUNG & MEMBUAT JURNAL SELISIH (BALANCING) ──────────
-            $selisih = $totalDebit - $totalKredit;
-
-            if (abs($selisih) > 0.001) { // Menghindari isu angka desimal super kecil (floating point error)
-                $mapSelisih   = $selisih > 0 ? 'k' : 'd'; // Jika debit lebih besar, pasang di kredit
-                $nilaiSelisih = abs($selisih);
-                $namaSelisih  = $this->getNamaAkun(self::KODE_PENDAPATAN_KELEBIHAN_PAKAN) ?: 'Pendapatan kelebihan produksi pakan';
-
-                $hSelisih = $this->buatHeader([
-                    'no_jurnal_pembantu' => $this->nextNomorPembantu(),
-                    'tgl_transaksi'      => $tgl,
-                    'jenis_transaksi'    => 'pk',
-                    'modul_asal'         => 'produksi_pakan',
-                    'jurnal'             => $noJurnal,
-                    'no_akun'            => self::KODE_PENDAPATAN_KELEBIHAN_PAKAN,
-                    'nama_akun'          => $namaSelisih,
-                    'map'                => $mapSelisih,
-                    'keterangan'         => "Penyesuaian Selisih Produksi Pakan | {$ketKandang}",
-                    'no_dokumen'         => $nota,
-                    'total_nilai'        => $nilaiSelisih,
-                    'dibuat_oleh'        => $userId,
-                ]);
-
-                $this->buatItem($hSelisih->id, [
-                    'urut'        => 1,
-                    'no_dokumen'  => $nota,
-                    'keterangan'  => "Balancing Jurnal Produksi — {$label}",
-                    'banyak'      => 1,
-                    'harga'       => $nilaiSelisih,
-                    'jumlah'      => $nilaiSelisih,
-                    'created_by'  => $userId,
-                    'updated_by'  => $userId,
-                ]);
-            }
+            $totalDebit += $nilaiCampuran;
         }
 
-        Log::info("[ProduksiPakan] Proses 1 selesai. Produksi ID: {$produksi->id}");
+        /* ─────────────────────────────────────────────────────────────────
+        |  KREDIT: Bahan Mentah yang terpakai (total semua kandang digabung)
+        |  Satu baris kredit per jenis bahan mentah
+        ───────────────────────────────────────────────────────────────── */
+        $urutItem = 1;
+        foreach ($totalPerMentah as $data) {
+            $barang         = $data['barang'];
+            $kodeAkunMentah = $barang->subAnakAkun?->kode_sub_anak_akun ?? '1500-01';
+            $namaAkunMentah = $this->getNamaAkun($kodeAkunMentah) ?: ($barang->nama_barang ?? 'Bahan Mentah');
+            $qtyJurnal = $data['totalKg'];
+
+            $hKredit = $this->buatHeader([
+                'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+                'tgl_transaksi'      => $tgl,
+                'jenis_transaksi'    => 'pk',
+                'modul_asal'         => 'produksi_pakan',
+                'jurnal'             => $noJurnal,
+                'no_akun'            => $kodeAkunMentah,
+                'nama_akun'          => $namaAkunMentah,
+                'map'                => 'k',
+                'keterangan'         => $ket,
+                'no_dokumen'         => $nota,
+                'total_nilai'        => $data['totalNilai'],
+                'dibuat_oleh'        => $userId,
+            ]);
+
+            $this->buatItem($hKredit->id, [
+                'urut'        => $urutItem++,
+                'nama_barang' => $barang->nama_barang,
+                'no_dokumen'  => $nota,
+                'keterangan'  => "Bahan {$barang->nama_barang} → semua kandang",
+                'banyak'      => $qtyJurnal,
+                'harga'       => $data['harga'],
+                'jumlah'      => $data['totalNilai'],
+                'created_by'  => $userId,
+                'updated_by'  => $userId,
+            ]);
+
+            $totalKredit += $data['totalNilai'];
+        }
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  KREDIT: Hutang Gaji
+        ───────────────────────────────────────────────────────────────── */
+        $hGaji = $this->buatHeader([
+            'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+            'tgl_transaksi'      => $tgl,
+            'jenis_transaksi'    => 'pk',
+            'modul_asal'         => 'produksi_pakan',
+            'jurnal'             => $noJurnal,
+            'no_akun'            => self::KODE_HUTANG_GAJI,
+            'nama_akun'          => $this->getNamaAkun(self::KODE_HUTANG_GAJI) ?: 'Hutang Gaji Pegawai Kandang',
+            'map'                => 'k',
+            'keterangan'         => "Hutang Gaji Pegawai | {$ket}",
+            'no_dokumen'         => $nota,
+            'total_nilai'        => self::NILAI_HUTANG_GAJI,
+            'dibuat_oleh'        => $userId,
+        ]);
+
+        $this->buatItem($hGaji->id, [
+            'urut'        => 1,
+            'no_dokumen'  => $nota,
+            'keterangan'  => 'Akrual gaji pegawai kandang',
+            'banyak'      => 1,
+            'harga'       => self::NILAI_HUTANG_GAJI,
+            'jumlah'      => self::NILAI_HUTANG_GAJI,
+            'created_by'  => $userId,
+            'updated_by'  => $userId,
+        ]);
+
+        $totalKredit += self::NILAI_HUTANG_GAJI;
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  KREDIT: Hutang Listrik
+        ───────────────────────────────────────────────────────────────── */
+        $hListrik = $this->buatHeader([
+            'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+            'tgl_transaksi'      => $tgl,
+            'jenis_transaksi'    => 'pk',
+            'modul_asal'         => 'produksi_pakan',
+            'jurnal'             => $noJurnal,
+            'no_akun'            => self::KODE_HUTANG_LISTRIK,
+            'nama_akun'          => $this->getNamaAkun(self::KODE_HUTANG_LISTRIK) ?: 'Hutang Listrik Kandang',
+            'map'                => 'k',
+            'keterangan'         => "Hutang Listrik | {$ket}",
+            'no_dokumen'         => $nota,
+            'total_nilai'        => self::NILAI_HUTANG_LISTRIK,
+            'dibuat_oleh'        => $userId,
+        ]);
+
+        $this->buatItem($hListrik->id, [
+            'urut'        => 1,
+            'no_dokumen'  => $nota,
+            'keterangan'  => 'Akrual beban listrik kandang',
+            'banyak'      => 1,
+            'harga'       => self::NILAI_HUTANG_LISTRIK,
+            'jumlah'      => self::NILAI_HUTANG_LISTRIK,
+            'created_by'  => $userId,
+            'updated_by'  => $userId,
+        ]);
+
+        $totalKredit += self::NILAI_HUTANG_LISTRIK;
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  BALANCING: Selisih Debit vs Kredit
+        |
+        |  Kenapa bisa ada selisih?
+        |  Karena harga pakan campuran (debit) dihitung dari harga_jual
+        |  barang campuran, sedangkan kredit dihitung dari harga_jual
+        |  bahan mentah. Keduanya bisa berbeda.
+        |
+        |  Aturan: Total D harus = Total K
+        |  Jika D > K → pasang selisih di sisi K (kredit pendapatan)
+        |  Jika K > D → pasang selisih di sisi D (kurangi pendapatan)
+        ───────────────────────────────────────────────────────────────── */
+        $selisih = $totalDebit - $totalKredit;
+
+        if (abs($selisih) > 0.001) {
+            $mapSelisih   = $selisih > 0 ? 'k' : 'd';
+            $nilaiSelisih = abs($selisih);
+            $namaSelisih  = $this->getNamaAkun(self::KODE_PENDAPATAN_KELEBIHAN_PAKAN)
+                ?: 'Pendapatan kelebihan produksi pakan';
+
+            $hSelisih = $this->buatHeader([
+                'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+                'tgl_transaksi'      => $tgl,
+                'jenis_transaksi'    => 'pk',
+                'modul_asal'         => 'produksi_pakan',
+                'jurnal'             => $noJurnal,
+                'no_akun'            => self::KODE_PENDAPATAN_KELEBIHAN_PAKAN,
+                'nama_akun'          => $namaSelisih,
+                'map'                => $mapSelisih,
+                'keterangan'         => "Penyesuaian Selisih Produksi Pakan | {$ket}",
+                'no_dokumen'         => $nota,
+                'total_nilai'        => $nilaiSelisih,
+                'dibuat_oleh'        => $userId,
+            ]);
+
+            $this->buatItem($hSelisih->id, [
+                'urut'        => 1,
+                'no_dokumen'  => $nota,
+                'keterangan'  => 'Balancing Jurnal Produksi Pakan',
+                'banyak'      => 1,
+                'harga'       => $nilaiSelisih,
+                'jumlah'      => $nilaiSelisih,
+                'created_by'  => $userId,
+                'updated_by'  => $userId,
+            ]);
+        }
+
+        Log::info("[ProduksiPakan] Proses 1 selesai (1 jurnal). ID: {$produksi->id}, No Jurnal: {$noJurnal}");
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
-    |  PROSES 2 — Pakan Campuran Keluar → Kandang
+    |  PROSES 2 — Pakan Campuran Keluar → Telur (SATU JURNAL)
+    |
+    |  Struktur jurnal (mengikuti foto):
+    |  D: Telur Petian, Telur Kiloan, Telur Bentes (hardcoded, nilai per kandang)
+    |  K: Setiap Pakan Campuran yang keluar (Layer 1, Layer 2, Pullet)
+    |  K: Hutang Gaji
+    |  K/D: Selisih balancing jika ada
+    |
+    |  PERBEDAAN dengan Proses 1:
+    |  Di foto, Proses 2 tetap per jurnal per kandang (jurnal 93 hanya L1+L2).
+    |  Tapi kita gabungkan juga agar konsisten — semua dalam 1 jurnal.
     ═══════════════════════════════════════════════════════════════════════ */
 
     private function buatJurnalProses2(ProduksiPakan $produksi, int $userId): void
     {
-        $tgl  = $produksi->tanggal_produksi->toDateString();
-        $nota = 'PRODC-' . $produksi->id . '-' . $tgl;
-        $ket  = "Produksi Pakan Campuran | Tgl: {$tgl}";
+        $tgl      = $produksi->tanggal_produksi->toDateString();
+        $nota     = 'PRODC-' . $produksi->id . '-' . $tgl;
+        $ket      = "Produksi Pakan Campuran | Tgl: {$tgl}";
+        $noJurnal = $this->nextNoJurnal() ?? 0;
 
         $kandangs = [
             'pullet' => ['field' => 'keluar_pullet', 'label' => 'Pullet'],
             'l1'     => ['field' => 'keluar_l1',     'label' => 'Layer 1'],
             'l2'     => ['field' => 'keluar_l2',     'label' => 'Layer 2'],
         ];
+
+        /**
+         * LANGKAH 1: Kumpulkan pakan campuran yang keluar ke kandang
+         *
+         * Kita kumpulkan dulu semua yang ada nilainya, baru buat jurnal.
+         * Ini memastikan kita tahu total debit telur sebelum nulis baris kredit.
+         */
+        $campuranKeluar = [];
 
         foreach ($produksi->pakanCampurans as $campuran) {
             $nama = strtoupper($campuran->barang?->nama_barang ?? '');
@@ -338,58 +432,75 @@ class ProduksiPakanService
             if (!$kandangKey) continue;
 
             $field        = $kandangs[$kandangKey]['field'];
-            $label        = $kandangs[$kandangKey]['label'];
             $jumlahKeluar = (float)$campuran->$field;
 
             if ($jumlahKeluar <= 0) continue;
 
-            // Penampung Nilai
-            $totalDebit  = 0;
-            $totalKredit = 0;
+            $campuranKeluar[] = [
+                'campuran'    => $campuran,
+                'kandangKey'  => $kandangKey,
+                'label'       => $kandangs[$kandangKey]['label'],
+                'jumlah'      => $jumlahKeluar,
+            ];
+        }
 
-            $barangCampuran   = $campuran->barang;
+        if (empty($campuranKeluar)) return;
+
+        // ── Penampung total untuk balancing ─────────────────────────────
+        $totalDebit  = 0.0;
+        $totalKredit = 0.0;
+        $urutItem    = 1;
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  DEBIT: Telur (hardcoded per jenis telur)
+        |
+        |  Dari foto: nilai telur tampaknya adalah nilai total (bukan per kandang).
+        |  Kita pasang setiap jenis telur sebagai 1 baris debit.
+        ───────────────────────────────────────────────────────────────── */
+        foreach (self::AKUN_TELUR as $telur) {
+            $hTelur = $this->buatHeader([
+                'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+                'tgl_transaksi'      => $tgl,
+                'jenis_transaksi'    => 'pk',
+                'modul_asal'         => 'produksi_pakan',
+                'jurnal'             => $noJurnal,
+                'no_akun'            => $telur['kode'],
+                'nama_akun'          => $telur['nama'],
+                'map'                => 'd',
+                'keterangan'         => $ket,
+                'no_dokumen'         => $nota,
+                'total_nilai'        => $telur['nilai'],
+                'dibuat_oleh'        => $userId,
+            ]);
+
+            $this->buatItem($hTelur->id, [
+                'urut'        => $urutItem++,
+                'nama_barang' => $telur['nama'],
+                'no_dokumen'  => $nota,
+                'keterangan'  => "Hasil panen {$telur['nama']}",
+                'banyak'      => 1,
+                'harga'       => $telur['nilai'],
+                'jumlah'      => $telur['nilai'],
+                'created_by'  => $userId,
+                'updated_by'  => $userId,
+            ]);
+
+            $totalDebit += $telur['nilai'];
+        }
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  KREDIT: Pakan Campuran keluar per kandang
+        |  Setiap jenis pakan yang keluar → 1 baris kredit
+        ───────────────────────────────────────────────────────────────── */
+        $urutItem = 1;
+        foreach ($campuranKeluar as $data) {
+            $barangCampuran   = $data['campuran']->barang;
             $kodeAkunCampuran = $barangCampuran?->subAnakAkun?->kode_sub_anak_akun ?? '1500-00';
             $namaAkunCampuran = $this->getNamaAkun($kodeAkunCampuran)
-                ?: ($barangCampuran?->nama_barang ?? "Pakan {$label}");
+                ?: ($barangCampuran?->nama_barang ?? "Pakan {$data['label']}");
             $hargaCampuran    = (float)($barangCampuran?->harga_jual ?? 0);
-            $nilaiCampuran    = $jumlahKeluar * $hargaCampuran;
+            $nilaiCampuran    = $data['jumlah'] * $hargaCampuran;
 
-            $noJurnal   = $this->nextNoJurnal();
-            $ketKandang = "{$ket} | {$label}";
-
-            // ── D: Telur Petian, Kiloan, Bentes (hardcoded) ──────────────
-            foreach (self::AKUN_TELUR as $urut => $telur) {
-                $hTelur = $this->buatHeader([
-                    'no_jurnal_pembantu' => $this->nextNomorPembantu(),
-                    'tgl_transaksi'      => $tgl,
-                    'jenis_transaksi'    => 'pk',
-                    'modul_asal'         => 'produksi_pakan',
-                    'jurnal'             => $noJurnal,
-                    'no_akun'            => $telur['kode'],
-                    'nama_akun'          => $telur['nama'],
-                    'map'                => 'd',
-                    'keterangan'         => $ketKandang,
-                    'no_dokumen'         => $nota,
-                    'total_nilai'        => $telur['nilai'],
-                    'dibuat_oleh'        => $userId,
-                ]);
-
-                $this->buatItem($hTelur->id, [
-                    'urut'        => $urut + 1,
-                    'nama_barang' => $telur['nama'],
-                    'no_dokumen'  => $nota,
-                    'keterangan'  => "{$telur['nama']} dari produksi {$label}",
-                    'banyak'      => 1,
-                    'harga'       => $telur['nilai'],
-                    'jumlah'      => $telur['nilai'],
-                    'created_by'  => $userId,
-                    'updated_by'  => $userId,
-                ]);
-
-                $totalDebit += $telur['nilai']; // Tambah ke penampung debit
-            }
-
-            // ── K: Pakan Campuran keluar ─────────────────────────────────
             $hCampuran = $this->buatHeader([
                 'no_jurnal_pembantu' => $this->nextNomorPembantu(),
                 'tgl_transaksi'      => $tgl,
@@ -399,18 +510,18 @@ class ProduksiPakanService
                 'no_akun'            => $kodeAkunCampuran,
                 'nama_akun'          => $namaAkunCampuran,
                 'map'                => 'k',
-                'keterangan'         => $ketKandang,
+                'keterangan'         => $ket,
                 'no_dokumen'         => $nota,
                 'total_nilai'        => $nilaiCampuran,
                 'dibuat_oleh'        => $userId,
             ]);
 
             $this->buatItem($hCampuran->id, [
-                'urut'        => 1,
+                'urut'        => $urutItem++,
                 'nama_barang' => $barangCampuran?->nama_barang,
                 'no_dokumen'  => $nota,
-                'keterangan'  => "Pakan {$label} keluar ke kandang",
-                'banyak'      => $jumlahKeluar,
+                'keterangan'  => "Pakan {$data['label']} keluar ke kandang",
+                'banyak'      => $data['jumlah'],
                 'harga'       => $hargaCampuran,
                 'jumlah'      => $nilaiCampuran,
                 'created_by'  => $userId,
@@ -418,74 +529,78 @@ class ProduksiPakanService
             ]);
 
             $totalKredit += $nilaiCampuran;
+        }
 
-            // ── K: Hutang Gaji Karyawan ──────────────────────────────────
-            $hGaji = $this->buatHeader([
+        /* ─────────────────────────────────────────────────────────────────
+        |  KREDIT: Hutang Gaji
+        ───────────────────────────────────────────────────────────────── */
+        $hGaji = $this->buatHeader([
+            'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+            'tgl_transaksi'      => $tgl,
+            'jenis_transaksi'    => 'pk',
+            'modul_asal'         => 'produksi_pakan',
+            'jurnal'             => $noJurnal,
+            'no_akun'            => self::KODE_HUTANG_GAJI,
+            'nama_akun'          => $this->getNamaAkun(self::KODE_HUTANG_GAJI) ?: 'Hutang Gaji Karyawan',
+            'map'                => 'k',
+            'keterangan'         => "Hutang Gaji Karyawan | {$ket}",
+            'no_dokumen'         => $nota,
+            'total_nilai'        => self::NILAI_HUTANG_GAJI,
+            'dibuat_oleh'        => $userId,
+        ]);
+
+        $this->buatItem($hGaji->id, [
+            'urut'        => 1,
+            'no_dokumen'  => $nota,
+            'keterangan'  => 'Akrual gaji karyawan kandang',
+            'banyak'      => 1,
+            'harga'       => self::NILAI_HUTANG_GAJI,
+            'jumlah'      => self::NILAI_HUTANG_GAJI,
+            'created_by'  => $userId,
+            'updated_by'  => $userId,
+        ]);
+
+        $totalKredit += self::NILAI_HUTANG_GAJI;
+
+        /* ─────────────────────────────────────────────────────────────────
+        |  BALANCING: Selisih Debit vs Kredit
+        ───────────────────────────────────────────────────────────────── */
+        $selisih = $totalDebit - $totalKredit;
+
+        if (abs($selisih) > 0.001) {
+            $mapSelisih   = $selisih > 0 ? 'k' : 'd';
+            $nilaiSelisih = abs($selisih);
+            $namaSelisih  = $this->getNamaAkun(self::KODE_PENDAPATAN_KELEBIHAN_TELUR)
+                ?: 'Pendapatan kelebihan produksi telur';
+
+            $hSelisih = $this->buatHeader([
                 'no_jurnal_pembantu' => $this->nextNomorPembantu(),
                 'tgl_transaksi'      => $tgl,
                 'jenis_transaksi'    => 'pk',
                 'modul_asal'         => 'produksi_pakan',
                 'jurnal'             => $noJurnal,
-                'no_akun'            => self::KODE_HUTANG_GAJI,
-                'nama_akun'          => $this->getNamaAkun(self::KODE_HUTANG_GAJI) ?: 'Hutang Gaji Karyawan',
-                'map'                => 'k',
-                'keterangan'         => "Hutang Gaji Karyawan | {$ketKandang}",
+                'no_akun'            => self::KODE_PENDAPATAN_KELEBIHAN_TELUR,
+                'nama_akun'          => $namaSelisih,
+                'map'                => $mapSelisih,
+                'keterangan'         => "Penyesuaian Selisih Produksi Telur | {$ket}",
                 'no_dokumen'         => $nota,
-                'total_nilai'        => self::NILAI_HUTANG_GAJI,
+                'total_nilai'        => $nilaiSelisih,
                 'dibuat_oleh'        => $userId,
             ]);
 
-            $this->buatItem($hGaji->id, [
+            $this->buatItem($hSelisih->id, [
                 'urut'        => 1,
                 'no_dokumen'  => $nota,
-                'keterangan'  => "Akrual gaji karyawan kandang — {$label}",
+                'keterangan'  => 'Balancing Jurnal Produksi Telur',
                 'banyak'      => 1,
-                'harga'       => self::NILAI_HUTANG_GAJI,
-                'jumlah'      => self::NILAI_HUTANG_GAJI,
+                'harga'       => $nilaiSelisih,
+                'jumlah'      => $nilaiSelisih,
                 'created_by'  => $userId,
                 'updated_by'  => $userId,
             ]);
-
-            $totalKredit += self::NILAI_HUTANG_GAJI;
-
-            // ── MENGHITUNG & MEMBUAT JURNAL SELISIH (BALANCING) ──────────
-            $selisih = $totalDebit - $totalKredit;
-
-            if (abs($selisih) > 0.001) {
-                $mapSelisih   = $selisih > 0 ? 'k' : 'd';
-                $nilaiSelisih = abs($selisih);
-                $namaSelisih  = $this->getNamaAkun(self::KODE_PENDAPATAN_KELEBIHAN_TELUR) ?: 'Pendapatan kelebihan produksi telur';
-
-                $hSelisih = $this->buatHeader([
-                    'no_jurnal_pembantu' => $this->nextNomorPembantu(),
-                    'tgl_transaksi'      => $tgl,
-                    'jenis_transaksi'    => 'pk',
-                    'modul_asal'         => 'produksi_pakan',
-                    'jurnal'             => $noJurnal,
-                    // Karena ini di Proses 2 (keluar telur), saya pasang 4400-02 sesuai foto list akun
-                    'no_akun'            => self::KODE_PENDAPATAN_KELEBIHAN_TELUR,
-                    'nama_akun'          => $namaSelisih,
-                    'map'                => $mapSelisih,
-                    'keterangan'         => "Penyesuaian Selisih Produksi Telur | {$ketKandang}",
-                    'no_dokumen'         => $nota,
-                    'total_nilai'        => $nilaiSelisih,
-                    'dibuat_oleh'        => $userId,
-                ]);
-
-                $this->buatItem($hSelisih->id, [
-                    'urut'        => 1,
-                    'no_dokumen'  => $nota,
-                    'keterangan'  => "Balancing Jurnal Produksi — {$label}",
-                    'banyak'      => 1,
-                    'harga'       => $nilaiSelisih,
-                    'jumlah'      => $nilaiSelisih,
-                    'created_by'  => $userId,
-                    'updated_by'  => $userId,
-                ]);
-            }
         }
 
-        Log::info("[ProduksiPakan] Proses 2 selesai. Produksi ID: {$produksi->id}");
+        Log::info("[ProduksiPakan] Proses 2 selesai (1 jurnal). ID: {$produksi->id}, No Jurnal: {$noJurnal}");
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
@@ -500,14 +615,16 @@ class ProduksiPakanService
         $satuanSak = Satuan::whereRaw('LOWER(nama_satuan) = ?', ['sak'])->first();
         if (!$satuanSak) return $this->konversiCache[$barangId] = 1;
 
+        // Baca nilai aktual dari DB, bukan exists() saja
         $konversi = SatuanKonversi::where('id_barang', $barangId)
             ->where('id_satuan_asal', $satuanSak->id)
             ->aktif()
             ->first();
 
-        return $this->konversiCache[$barangId] = $konversi ? (float)$konversi->nilai_konversi : 1;
+        return $this->konversiCache[$barangId] = $konversi
+            ? (float) $konversi->nilai_konversi  // ← nilai real dari DB
+            : 1;
     }
-
     private function getNamaAkun(string $kode): string
     {
         if (isset($this->akunCache[$kode])) return $this->akunCache[$kode];
@@ -518,12 +635,12 @@ class ProduksiPakanService
 
     private function nextNoJurnal(): int
     {
-        return JurnalPembantuHeader::lockForUpdate()->max('jurnal') + 1;
+        return (JurnalPembantuHeader::lockForUpdate()->max('jurnal') ?? 0) + 1;
     }
 
     private function nextNomorPembantu(): int
     {
-        return JurnalPembantuHeader::lockForUpdate()->max('no_jurnal_pembantu') + 1;
+        return (JurnalPembantuHeader::lockForUpdate()->max('no_jurnal_pembantu') ?? 0) + 1;
     }
 
     private function buatHeader(array $data): JurnalPembantuHeader
