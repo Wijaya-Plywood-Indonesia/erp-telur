@@ -59,20 +59,12 @@ class ProduksiPakanService
                 || (float)$i->keluar_l2 > 0
         );
 
-        DB::transaction(function () use ($produksi, $userId, $adaMentah, $adaCampuranKeluar) {
+        DB::transaction(function () use ($produksi, $userId, $adaMentah) {
 
-            // Kondisi A & C — ada bahan mentah → jalankan Proses 1
             if ($adaMentah) {
                 $this->buatJurnalProses1($produksi, $userId);
-            }
-
-            // Kondisi A & B — ada pakan campuran keluar → jalankan Proses 2
-            if ($adaCampuranKeluar) {
-                $this->buatJurnalProses2($produksi, $userId);
-            }
-
-            if (!$adaMentah && !$adaCampuranKeluar) {
-                Log::info("[ProduksiPakan] Tidak ada data terisi, jurnal tidak dibuat.");
+            } else {
+                Log::info("[ProduksiPakan] Tidak ada data mentah terisi, jurnal tidak dibuat.");
             }
         });
     }
