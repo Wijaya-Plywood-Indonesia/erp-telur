@@ -94,9 +94,6 @@
                         <td class="px-4 py-3 font-mono text-xs font-semibold text-gray-900 dark:text-gray-100">
                             {{ $row['no_opname'] }}
                         </td>
-                        <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
-                            {{ $row['toko'] }}
-                        </td>
                         <td class="px-4 py-3 text-center text-gray-600 dark:text-gray-400">
                             {{ $row['tanggal'] }}
                         </td>
@@ -157,7 +154,6 @@
                         <td class="px-4 py-3 font-mono text-xs font-semibold text-gray-900 dark:text-gray-100">
                             {{ $row['no_opname'] }}
                         </td>
-                        <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{{ $row['toko'] }}</td>
                         <td class="px-4 py-3 text-center text-gray-600 dark:text-gray-400">{{ $row['tanggal'] }}</td>
                         <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{{ $row['created_by'] }}</td>
                         <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{{ $row['approved_by'] }}</td>
@@ -200,10 +196,6 @@
                 <div class="flex gap-2 items-center">
                     <span class="text-xs text-gray-500 dark:text-gray-400 min-w-[90px]">No Opname</span>
                     <strong class="text-sm text-gray-900 dark:text-gray-100">{{ $opname->no_opname }}</strong>
-                </div>
-                <div class="flex gap-2 items-center">
-                    <span class="text-xs text-gray-500 dark:text-gray-400 min-w-[90px]">Toko</span>
-                    <strong class="text-sm text-gray-900 dark:text-gray-100">{{ $opname->toko->nama_toko }}</strong>
                 </div>
                 <div class="flex gap-2 items-center">
                     <span class="text-xs text-gray-500 dark:text-gray-400 min-w-[90px]">Tanggal</span>

@@ -58,13 +58,11 @@ class AyamRelationManager extends RelationManager
                     ->default(1)
                     ->suffix('minggu')
                     ->required()
-                    ->dehydrated(false)
                     ->afterStateHydrated(function ($component, $record) {
                         if ($record) {
-                            $component->state(round($record->usia / 7, 2));
+                            $component->state(intdiv($record->umur_hari, 7));
                         }
                     }),
-
                 Textarea::make('keterangan')
                     ->columnSpanFull(),
             ]);
@@ -127,10 +125,11 @@ class AyamRelationManager extends RelationManager
             ->actions([
                 EditAction::make()
                     ->modalHeading('Ubah Data Ayam')
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['usia'] = isset($data['usia_minggu'])
-                            ? (int) round((float) $data['usia_minggu'] * 7)
-                            : 7;
+                    ->mutateFormDataUsing(function (array $data, $record): array {
+                        $inputHari = (int) round((float) $data['usia_minggu'] * 7);
+                        $selisih = (int) $record->tanggal_masuk->startOfDay()->diffInDays(now()->startOfDay());
+
+                        $data['usia'] = max(0, $inputHari - $selisih);
                         return $data;
                     }),
                 DeleteAction::make(),

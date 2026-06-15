@@ -229,98 +229,165 @@ class ProduksiPakanLaporan extends Page
                 });
             })->get();
 
-        // ── Cari produksi terakhir SEBELUM tanggal yang dipilih ──
-        $produksiKemarin = ProduksiPakan::with([
-            'pakanMentahs',
-            'pakanCampurans',
-        ])
+        // ══════════════════════════════════════════════════════════
+        // LANGKAH 1: Cari produksi terakhir sebelum selectedDate
+        // ══════════════════════════════════════════════════════════
+        $produksiKemarin = ProduksiPakan::with(['pakanMentahs', 'pakanCampurans'])
             ->whereDate('tanggal_produksi', '<', $this->selectedDate)
             ->orderByDesc('tanggal_produksi')
             ->first();
 
-        // Buat map: barang_id => stok_akhir dari produksi terakhir
-        $stokAkhirKemarin = [];
+        // ══════════════════════════════════════════════════════════
+        // LANGKAH 2: Cari opname terakhir yang DISETUJUI
+        //            sebelum atau sama dengan selectedDate
+        // ══════════════════════════════════════════════════════════
+        $opnameTerakhir = \App\Models\StockOpname::with('details')
+            ->where('status', 'disetujui')
+            ->whereDate('tanggal_opname', '<=', $this->selectedDate)
+            ->orderByDesc('tanggal_opname')
+            ->orderByDesc('approved_at')  // jika tanggal sama, ambil yang paling akhir diapprove
+            ->first();
 
-        if ($produksiKemarin) {
+        // ══════════════════════════════════════════════════════════
+        // LANGKAH 3: Tentukan mana yang lebih baru — opname atau produksi
+        //            Yang lebih baru = referensi stok awal
+        // ══════════════════════════════════════════════════════════
+        $tanggalProduksiTerakhir = $produksiKemarin?->tanggal_produksi
+            ? \Carbon\Carbon::parse($produksiKemarin->tanggal_produksi)
+            : null;
+
+        $tanggalOpnameTerakhir = $opnameTerakhir?->tanggal_opname
+            ? \Carbon\Carbon::parse($opnameTerakhir->tanggal_opname)
+            : null;
+
+        // Tentukan sumber referensi mana yang dipakai
+        // null = tidak ada referensi sama sekali → baca semua jurnal
+        $gunakanOpnameSebagaiBase = false;
+        $tanggalReferensi         = null;
+        $stokReferensi            = []; // [barang_id => qty]
+
+        if ($tanggalOpnameTerakhir && $tanggalProduksiTerakhir) {
+            // Keduanya ada — bandingkan mana yang lebih baru
+            if ($tanggalOpnameTerakhir->gte($tanggalProduksiTerakhir)) {
+                // Opname lebih baru atau sama → pakai opname
+                $gunakanOpnameSebagaiBase = true;
+                $tanggalReferensi         = $tanggalOpnameTerakhir;
+            } else {
+                // Produksi lebih baru → pakai stok_akhir produksi
+                $gunakanOpnameSebagaiBase = false;
+                $tanggalReferensi         = $tanggalProduksiTerakhir;
+            }
+        } elseif ($tanggalOpnameTerakhir) {
+            // Hanya ada opname, belum pernah ada produksi
+            $gunakanOpnameSebagaiBase = true;
+            $tanggalReferensi         = $tanggalOpnameTerakhir;
+        } elseif ($tanggalProduksiTerakhir) {
+            // Hanya ada produksi, belum pernah ada opname
+            $gunakanOpnameSebagaiBase = false;
+            $tanggalReferensi         = $tanggalProduksiTerakhir;
+        }
+        // else: keduanya null → tanggalReferensi tetap null → baca semua jurnal
+
+        // ══════════════════════════════════════════════════════════
+        // LANGKAH 4: Bangun map stok referensi per barang_id
+        // ══════════════════════════════════════════════════════════
+        if ($gunakanOpnameSebagaiBase && $opnameTerakhir) {
+            // Ambil stok_aktual dari detail opname sebagai base
+            foreach ($opnameTerakhir->details as $detail) {
+                $stokReferensi[$detail->barang_id] = (float) ($detail->stok_aktual ?? 0);
+            }
+        } elseif (!$gunakanOpnameSebagaiBase && $produksiKemarin) {
+            // Ambil stok_akhir dari produksi kemarin sebagai base
             foreach ($produksiKemarin->pakanMentahs as $item) {
-                $stokAkhirKemarin[$item->id_barang] = (float) $item->stok_akhir;
+                $stokReferensi[$item->id_barang] = (float) $item->stok_akhir;
             }
             foreach ($produksiKemarin->pakanCampurans as $item) {
-                $stokAkhirKemarin[$item->id_barang] = (float) $item->stok_akhir;
+                $stokReferensi[$item->id_barang] = (float) $item->stok_akhir;
             }
         }
+        // else: stokReferensi kosong → stok awal murni dari JurnalUmum
 
-        // ── Fallback ke JurnalUmum jika belum pernah ada produksi sama sekali ──
-        $stokMap = [];
-        $belumAdaProduksi = empty($stokAkhirKemarin);
+        // ══════════════════════════════════════════════════════════
+        // LANGKAH 5: Hitung delta JurnalUmum SETELAH tanggal referensi
+        //            s/d selectedDate
+        // ══════════════════════════════════════════════════════════
+        $kodeAkuns = $semuaBarang
+            ->map(fn($b) => $b->subAnakAkun?->kode_sub_anak_akun)
+            ->filter()->unique()->toArray();
 
-        if ($belumAdaProduksi) {
-            // Pakai JurnalUmum sebagai stok awal pertama kali
-            $kodeAkuns = $semuaBarang
-                ->map(fn($b) => $b->subAnakAkun?->kode_sub_anak_akun)
-                ->filter()->unique()->toArray();
+        $stokJurnalDelta = [];
 
-            if (!empty($kodeAkuns)) {
-                $transaksisGrouped = \App\Models\JurnalUmum::select(
-                    'no_akun',
-                    'map',
-                    DB::raw('SUM(COALESCE(banyak, 0)) as total_qty')
-                )
-                    ->whereIn('no_akun', $kodeAkuns)
-                    ->groupBy('no_akun', 'map')
-                    ->get()
-                    ->groupBy('no_akun');
+        if (!empty($kodeAkuns)) {
+            $queryJurnal = \App\Models\JurnalUmum::select(
+                'no_akun',
+                'map',
+                DB::raw('SUM(COALESCE(banyak, 0)) as total_qty')
+            )->whereIn('no_akun', $kodeAkuns);
 
-                foreach ($semuaBarang as $barang) {
-                    $kodeAkun = $barang->subAnakAkun?->kode_sub_anak_akun;
-                    $totalQty = 0.0;
+            if ($tanggalReferensi) {
+                // Ada referensi → hanya ambil delta SETELAH tanggal referensi
+                $queryJurnal->whereDate('tgl', '>', $tanggalReferensi->format('Y-m-d'))
+                    ->whereDate('tgl', '<=', $this->selectedDate);
+            } else {
+                // Tidak ada referensi sama sekali → ambil semua s/d hari ini
+                $queryJurnal->whereDate('tgl', '<=', $this->selectedDate);
+            }
 
-                    if ($kodeAkun && isset($transaksisGrouped[$kodeAkun])) {
-                        foreach ($transaksisGrouped[$kodeAkun] as $trx) {
-                            $isDebit = in_array(strtolower($trx->map), ['d', 'debit']);
-                            $totalQty += $isDebit ? (float) $trx->total_qty : -(float) $trx->total_qty;
-                        }
+            $transaksisGrouped = $queryJurnal
+                ->groupBy('no_akun', 'map')
+                ->get()
+                ->groupBy('no_akun');
+
+            foreach ($semuaBarang as $barang) {
+                $kodeAkun = $barang->subAnakAkun?->kode_sub_anak_akun;
+                $totalQty = 0.0;
+
+                if ($kodeAkun && isset($transaksisGrouped[$kodeAkun])) {
+                    foreach ($transaksisGrouped[$kodeAkun] as $trx) {
+                        $isDebit  = in_array(strtolower($trx->map), ['d', 'debit']);
+                        $totalQty += $isDebit
+                            ? (float) $trx->total_qty
+                            : -(float) $trx->total_qty;
                     }
-
-                    $stokMap[$barang->id] = max(0, $totalQty);
                 }
+
+                $stokJurnalDelta[$barang->id] = $totalQty;
             }
         }
 
-        // ── Bangun state ──
+        // ══════════════════════════════════════════════════════════
+        // LANGKAH 6: Bangun mentahState & campuranState
+        // ══════════════════════════════════════════════════════════
         $this->mentahState   = [];
         $this->campuranState = [];
 
         foreach ($semuaBarang as $b) {
-            $namaUpper     = strtoupper($b->nama_barang);
-            $isCampuran    = str_contains($namaUpper, 'PULLET')
+            $namaUpper  = strtoupper($b->nama_barang);
+            $isCampuran = str_contains($namaUpper, 'PULLET')
                 || str_contains($namaUpper, 'PULET')
                 || str_contains($namaUpper, 'LAYER');
 
-            // Prioritas: stok akhir kemarin → fallback JurnalUmum → 0
-            $stokAwal = (float) (
-                $stokAkhirKemarin[$b->id]   // ada produksi kemarin
-                ?? $stokMap[$b->id]          // fallback jurnal umum
-                ?? 0
-            );
+            $baseStok    = $stokReferensi[$b->id] ?? 0;
+            $deltaJurnal = $stokJurnalDelta[$b->id] ?? 0;
+            $stokAwal    = max(0, $baseStok + $deltaJurnal);
 
             $base = [
-                'id'        => null,
-                'barang_id' => $b->id,
+                'id'          => null,
+                'barang_id'   => $b->id,
                 'nama_barang' => $b->nama_barang,
                 'satuan'      => $b->satuan?->nama_satuan ?? '-',
                 'nama'        => $b->nama_barang,
-                'awal'      => $stokAwal,
-                'p'         => 0.0,
-                'l1'        => 0.0,
-                'l2'        => 0.0,
-                'akhir'     => $stokAwal,
+                'awal'        => $stokAwal,
+                'p'           => 0.0,
+                'l1'          => 0.0,
+                'l2'          => 0.0,
+                'akhir'       => $stokAwal,
             ];
 
             if ($isCampuran) {
                 $this->campuranState[] = array_merge($base, [
                     'masuk'  => 0.0,
-                    'satuan' => $b->satuan?->nama_satuan ?? 'kg', // ← tambah ini
+                    'satuan' => $b->satuan?->nama_satuan ?? 'kg',
                 ]);
             } else {
                 $this->mentahState[] = array_merge($base, [
@@ -333,6 +400,7 @@ class ProduksiPakanLaporan extends Page
                 ]);
             }
         }
+
         $this->sortCampuranState();
     }
 
@@ -369,11 +437,7 @@ class ProduksiPakanLaporan extends Page
             $faktor  = (float) ($this->mentahState[$idx]['konversi_sak'] ?? 1);
             $nilaiKg = (float) ($this->mentahState[$idx][$field . '_sak'] ?? 0) * $faktor;
 
-            $stokAwal    = (float) ($this->mentahState[$idx]['awal']  ?? 0);
-            $masukMentah = (float) ($this->mentahState[$idx]['masuk'] ?? 0);
-
-            // ✅ masuk (kg) → sak agar satuan konsisten dengan stokAwal (sak)
-            $masukSak = $faktor > 1 ? $masukMentah / $faktor : $masukMentah;
+            $stokAwal = (float) ($this->mentahState[$idx]['awal'] ?? 0);
 
             $sudahTerpakai = 0.0;
             foreach (['p', 'l1', 'l2'] as $k) {
@@ -382,12 +446,11 @@ class ProduksiPakanLaporan extends Page
                 }
             }
 
-            // sudahTerpakai dalam kg, konversi ke sak
+            // ✅ masuk tidak ikut — stok tersedia hanya dari awal
             $sudahTerpakaiSak = $faktor > 1 ? $sudahTerpakai / $faktor : $sudahTerpakai;
-            $stokTersedia     = $stokAwal + $masukSak - $sudahTerpakaiSak;
+            $stokTersedia     = $stokAwal - $sudahTerpakaiSak;
 
             if ($nilaiKg > $stokTersedia * $faktor) {
-                // batas dalam kg = stokTersedia (sak) × faktor
                 $nilaiKgFinal  = max(0, $stokTersedia * $faktor);
                 $nilaiSakFinal = $faktor > 1
                     ? round($nilaiKgFinal / $faktor, 4)
@@ -419,10 +482,8 @@ class ProduksiPakanLaporan extends Page
             $faktor = (float) ($this->mentahState[$idx]['konversi_sak'] ?? 1);
 
             if ($faktor <= 1) {
-                $nilaiKg     = (float) ($this->mentahState[$idx][$field] ?? 0);
-                $stokAwal    = (float) ($this->mentahState[$idx]['awal']  ?? 0);
-                $masukMentah = (float) ($this->mentahState[$idx]['masuk'] ?? 0);
-                // faktor = 1, jadi masukSak = masukMentah (tidak perlu konversi)
+                $nilaiKg  = (float) ($this->mentahState[$idx][$field] ?? 0);
+                $stokAwal = (float) ($this->mentahState[$idx]['awal']  ?? 0);
 
                 $sudahTerpakai = 0.0;
                 foreach (['p', 'l1', 'l2'] as $k) {
@@ -430,7 +491,9 @@ class ProduksiPakanLaporan extends Page
                         $sudahTerpakai += (float) ($this->mentahState[$idx][$k] ?? 0);
                     }
                 }
-                $stokTersedia = $stokAwal + $masukMentah - $sudahTerpakai;
+
+                // ✅ masuk tidak ikut — stok tersedia hanya dari awal
+                $stokTersedia = $stokAwal - $sudahTerpakai;
 
                 if ($nilaiKg > $stokTersedia) {
                     $nilaiKgFinal = max(0, $stokTersedia);
@@ -454,6 +517,7 @@ class ProduksiPakanLaporan extends Page
             }
         }
 
+        // ── Mentah: input masuk_sak → hanya konversi ke kg, tidak mempengaruhi validasi stok ──
         if (preg_match('/^mentahState\.(\d+)\.masuk_sak$/', $propertyName, $m)) {
             $idx      = (int) $m[1];
             $faktor   = (float) ($this->mentahState[$idx]['konversi_sak'] ?? 1);
@@ -462,7 +526,7 @@ class ProduksiPakanLaporan extends Page
             // Pastikan masuk_sak tidak negatif
             $this->mentahState[$idx]['masuk_sak'] = $nilaiSak;
 
-            // Konversi ke kg dan simpan ke masuk
+            // Konversi ke kg dan simpan ke masuk — hanya untuk record, tidak ikut hitung stok
             $this->mentahState[$idx]['masuk'] = $faktor > 1
                 ? $nilaiSak * $faktor
                 : $nilaiSak;
@@ -492,7 +556,6 @@ class ProduksiPakanLaporan extends Page
             $p     = (float) ($item['p']     ?? 0);
             $l1    = (float) ($item['l1']    ?? 0);
             $l2    = (float) ($item['l2']    ?? 0);
-            $masuk = (float) ($item['masuk'] ?? 0);
 
             $konversi = (float) ($item['konversi_sak'] ?? 1);
 
@@ -500,12 +563,9 @@ class ProduksiPakanLaporan extends Page
             $l1Sak = $konversi > 1 ? $l1 / $konversi : $l1;
             $l2Sak = $konversi > 1 ? $l2 / $konversi : $l2;
 
-            // ✅ masuk (kg) dikonversi ke sak agar satuan konsisten dengan awal (sak)
-            $masukSak = $konversi > 1 ? $masuk / $konversi : $masuk;
+            // ✅ masuk TIDAK ikut dihitung — hanya informasi
+            $this->mentahState[$idx]['akhir'] = max(0, (float) $item['awal'] - ($pSak + $l1Sak + $l2Sak));
 
-            $this->mentahState[$idx]['akhir'] = max(0, (float) $item['awal'] + $masukSak - ($pSak + $l1Sak + $l2Sak));
-
-            // totalP/L1/L2 tetap dalam kg — dipakai untuk mengisi masuk di campuran
             $totalP  += $p;
             $totalL1 += $l1;
             $totalL2 += $l2;
@@ -529,14 +589,9 @@ class ProduksiPakanLaporan extends Page
                 + (float) ($item['l1'] ?? 0)
                 + (float) ($item['l2'] ?? 0);
 
+            // campuran tetap: awal + masuk (dari total keluar mentah) - keluar
             $this->campuranState[$idx]['akhir'] = max(0, (float) $item['awal'] + $masuk - $keluar);
         }
-
-        $this->logInfo('Rekalkulasi selesai', [
-            'totalP'  => $totalP,
-            'totalL1' => $totalL1,
-            'totalL2' => $totalL2,
-        ]);
     }
 
     /* ═══════════════════════════════════════════════════════════════════════

@@ -30,16 +30,16 @@ class SubAnakAkun extends Model
     }
 
     public function akunGroups()
-{
-    return $this->belongsToMany(
-        AkunGroup::class,
-        'akun_group_sub_anak_akun',
-        'sub_anak_akun_id',
-        'akun_group_id'
-    )
-    ->withPivot('id')
-    ->withTimestamps();
-}
+    {
+        return $this->belongsToMany(
+            AkunGroup::class,
+            'akun_group_sub_anak_akun',
+            'sub_anak_akun_id',
+            'akun_group_id'
+        )
+            ->withPivot('id')
+            ->withTimestamps();
+    }
 
     public function creator()
     {
@@ -59,5 +59,9 @@ class SubAnakAkun extends Model
     public function mappingAkunProduksi(): HasMany
     {
         return $this->hasMany(MappingAkunProduksi::class, 'kode_akun', 'kode_sub_anak_akun');
+    }
+    public function kandang()
+    {
+        return $this->belongsTo(Kandang::class, 'id_kandang');
     }
 }

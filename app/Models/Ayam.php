@@ -36,28 +36,21 @@ class Ayam extends Model
     // Umur dalam hari
     public function getUmurHariAttribute(): int
     {
-        $selisihHari = (int) $this->tanggal_masuk->diffInDays(now());
+        $selisihHari = (int) $this->tanggal_masuk->startOfDay()->diffInDays(now()->startOfDay());
         return $this->usia + $selisihHari;
     }
-
     // Umur format tampilan
     public function getUmurFormatAttribute(): string
     {
         $hari = $this->umur_hari;
 
-        // Jika belum genap 1 minggu (0 - 6 hari)
         if ($hari < 7) {
-            return "{$hari} hari";
+            return "0 minggu"; // atau "belum 1 minggu"
         }
 
-        // Hitung jumlah minggu dan sisa harinya
         $minggu = intdiv($hari, 7);
-        $sisa   = $hari % 7;
 
-        // Jika sisa hari adalah 0, tampilkan minggunya saja
-        return $sisa === 0
-            ? "{$minggu} minggu"
-            : "{$minggu} minggu {$sisa} hari";
+        return "{$minggu} minggu";
     }
 
     // Konversi minggu → hari untuk disimpan
