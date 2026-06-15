@@ -10,7 +10,7 @@ class StokLogService
     public static function buatLog(
         int $barangId,
         int $tokoId,
-        string $tipe,
+        int $tipe,
         float $qty,
         string $refType,
         int $refId,

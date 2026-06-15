@@ -5,10 +5,6 @@ namespace App\Services;
 use App\Models\Barang;
 use App\Models\Penjualan;
 use App\Models\ReturnPenjualan;
-use App\Models\ReturnPenjualanDetail;
-use App\Models\StokBarangToko;
-use App\Models\StokLog;
-use App\Services\StokLogs\StokLogService;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -16,103 +12,66 @@ use Illuminate\Validation\ValidationException;
 
 class StokPenyesuaianService
 {
+    /**
+     * Stok Opname / Penyesuaian Manual Langsung ke Global
+     */
     public function sesuaikan(
         int $barangId,
-        int $tokoId,
+        int $tokoId, // Dipertahankan agar tidak mematahkan controller lama, tapi tidak digunakan
         int $stokFisik,
         int $userId,
         ?string $catatan
     ): void {
-        DB::transaction(function () use ($barangId, $tokoId, $stokFisik, $userId, $catatan) {
+        DB::transaction(function () use ($barangId, $stokFisik) {
 
-            $stok = StokBarangToko::where('barang_id', $barangId)
-                ->where('toko_id', $tokoId)
-                ->lockForUpdate()
-                ->first();
+            $barang = Barang::lockForUpdate()->find($barangId);
 
-            if (!$stok) {
-                $stok = StokBarangToko::create([
-                    'barang_id' => $barangId,
-                    'toko_id' => $tokoId,
-                    'stok' => 0,
-                ]);
-            }
-
-            $stokSebelum = $stok->stok;
-
-            if ($stokSebelum === $stokFisik) {
+            if (!$barang) {
                 return;
             }
 
-            $stok->update([
-                'stok' => $stokFisik,
-            ]);
+            $stokSebelum = (float) $barang->stok_buku_besar;
 
-            StokLog::create([
-                'barang_id' => $barangId,
-                'toko_id' => $tokoId,
-                'tipe' => 'penyesuaian',
-                'qty' => $stokFisik - $stokSebelum,
-                'stok_sebelum' => $stokSebelum,
-                'stok_sesudah' => $stokFisik,
-                'referensi_type' => 'stok_opname',
-                'created_by' => $userId,
+            if ($stokSebelum === (float) $stokFisik) {
+                return;
+            }
+
+            // Timpa langsung nilai stok global dengan angka fisik baru
+            $barang->update([
+                'stok_buku_besar' => $stokFisik,
             ]);
         });
     }
 
+    /**
+     * Transaksi Penjualan Lunas -> Potong Stok Global
+     */
     public function lunas(int $id_penjualan): void
     {
         DB::transaction(function () use ($id_penjualan) {
-
-            $tokoId = DB::table('penjualans')
-                ->where('id', $id_penjualan)
-                ->value('toko_id');
 
             $details = DB::table('penjualan_details')
                 ->where('penjualan_id', $id_penjualan)
                 ->select(['barang_id', 'qty', 'nama_barang'])
                 ->get();
-            foreach ($details as $detail) {
-                $barang = \App\Models\Barang::find($detail->barang_id);
-                $stokBukuBesar = $barang ? $barang->stok_buku_besar : 0;
 
-                if ($stokBukuBesar - (float) $detail->qty < 0) {
+            foreach ($details as $detail) {
+                $barang = Barang::lockForUpdate()->find($detail->barang_id);
+                $stokSebelum = $barang ? (float) $barang->stok_buku_besar : 0;
+
+                // Validasi kecukupan stok global
+                if ($stokSebelum - (float) $detail->qty < 0) {
                     throw ValidationException::withMessages([
                         'stok' => "Stok {$detail->nama_barang} tidak mencukupi"
                     ]);
                 }
 
-                $stok = StokBarangToko::where('barang_id', $detail->barang_id)
-                    ->where('toko_id', $tokoId)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$stok) {
-                    $stok = StokBarangToko::create([
-                        'barang_id' => $detail->barang_id,
-                        'toko_id' => $tokoId,
-                        'stok' => 0,
-                    ]);
-                }
-
-                $stokSebelum = (float) $stok->stok;
                 $stokSesudah = $stokSebelum - (float) $detail->qty;
 
-                $stok->update([
-                    'stok' => $stokSesudah,
+                // Potong langsung di tabel barang utama
+                $barang->update([
+                    'stok_buku_besar' => $stokSesudah,
                 ]);
-
-                StokLogService::buatLog(
-                    barangId: $detail->barang_id,
-                    tokoId: $tokoId,
-                    tipe: 'penjualan',
-                    qty: -(float) $detail->qty,
-                    refType: "penjualans",
-                    refId: $id_penjualan,
-                    stokTerakhir: $stokSebelum,
-                    stokSesudah: $stokSesudah
-                );
 
                 Notification::make()
                     ->title("Stok {$detail->nama_barang} berkurang")
@@ -128,13 +87,12 @@ class StokPenyesuaianService
         });
     }
 
+    /**
+     * Transaksi Batal Lunas -> Kembalikan Stok ke Global
+     */
     public function batalLunas(int $id_penjualan): void
     {
         DB::transaction(function () use ($id_penjualan) {
-
-            $tokoId = DB::table('penjualans')
-                ->where('id', $id_penjualan)
-                ->value('toko_id');
 
             $details = DB::table('penjualan_details')
                 ->where('penjualan_id', $id_penjualan)
@@ -142,37 +100,19 @@ class StokPenyesuaianService
                 ->get();
 
             foreach ($details as $detail) {
+                $barang = Barang::lockForUpdate()->find($detail->barang_id);
 
-                $stok = StokBarangToko::where('barang_id', $detail->barang_id)
-                    ->where('toko_id', $tokoId)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$stok) {
-                    $stok = StokBarangToko::create([
-                        'barang_id' => $detail->barang_id,
-                        'toko_id' => $tokoId,
-                        'stok' => 0,
-                    ]);
+                if (!$barang) {
+                    continue;
                 }
 
-                $stokSebelum = (float) $stok->stok;
+                $stokSebelum = (float) $barang->stok_buku_besar;
                 $stokSesudah = $stokSebelum + (float) $detail->qty;
 
-                $stok->update([
-                    'stok' => $stokSesudah,
+                // Tambahkan kembali ke stok global barang
+                $barang->update([
+                    'stok_buku_besar' => $stokSesudah,
                 ]);
-
-                StokLogService::buatLog(
-                    barangId: $detail->barang_id,
-                    tokoId: $tokoId,
-                    tipe: 'batal_penjualan',
-                    qty: (float) $detail->qty,
-                    refType: "penjualans",
-                    refId: $id_penjualan,
-                    stokTerakhir: $stokSebelum,
-                    stokSesudah: $stokSesudah
-                );
 
                 Notification::make()
                     ->title("Stok {$detail->nama_barang} dikembalikan")
@@ -187,61 +127,30 @@ class StokPenyesuaianService
                 ->send();
         });
     }
+
+    /**
+     * Retur Selesai -> Menambah Stok Global
+     * (Pengecekan berbasis model StokLog telah dihapus)
+     */
     public function selesai(int $id_return): void
     {
         DB::transaction(function () use ($id_return) {
-            // Cek log terakhir untuk referensi ini
-            $lastLog = StokLog::where('referensi_type', 'penjualan_return')
-                ->where('referensi_id', $id_return)
-                ->orderBy('id', 'desc')
-                ->first();
-
-            // Jika log terakhir sudah tipe 'retur', jangan proses lagi
-            if ($lastLog && $lastLog->tipe === 'retur') {
-                return;
-            }
-
             $return = ReturnPenjualan::with('details_return')->findOrFail($id_return);
 
-            // Ambil toko_id dari Penjualan asli karena di tabel return tidak ada
-            $penjualan = Penjualan::where('no_nota', $return->no_nota)->first();
-            $tokoId = $penjualan?->toko_id;
-
-            if (!$tokoId) {
-                throw new \Exception("Toko ID tidak ditemukan untuk nota {$return->no_nota}");
-            }
-
             foreach ($return->details_return as $detail) {
-                $stok = StokBarangToko::where('barang_id', $detail->id_barang)
-                    ->where('toko_id', $tokoId)
-                    ->lockForUpdate()
-                    ->first();
+                $barang = Barang::lockForUpdate()->find($detail->id_barang);
 
-                if (!$stok) {
-                    $stok = StokBarangToko::create([
-                        'barang_id' => $detail->id_barang,
-                        'toko_id' => $tokoId,
-                        'stok' => 0,
-                    ]);
+                if (!$barang) {
+                    continue;
                 }
 
-                $stokSebelum = (float) $stok->stok;
+                $stokSebelum = (float) $barang->stok_buku_besar;
                 $stokSesudah = $stokSebelum + (float) $detail->qty;
 
-                $stok->update([
-                    'stok' => $stokSesudah,
+                // Masukkan barang retur langsung ke stok global utama
+                $barang->update([
+                    'stok_buku_besar' => $stokSesudah,
                 ]);
-
-                StokLogService::buatLog(
-                    barangId: $detail->id_barang,
-                    tokoId: $tokoId,
-                    tipe: 'retur',
-                    qty: (float) $detail->qty, // Positif karena barang kembali
-                    refType: "penjualan_return",
-                    refId: $id_return,
-                    stokTerakhir: $stokSebelum,
-                    stokSesudah: $stokSesudah
-                );
 
                 Notification::make()
                     ->title("Stok {$detail->nama_barang} bertambah (Retur)")
@@ -257,43 +166,25 @@ class StokPenyesuaianService
         });
     }
 
+    /**
+     * Batal Retur -> Mengurangi Kembali Stok Global
+     * (Pengecekan berbasis model StokLog telah dihapus)
+     */
     public function validasi_batal_dari_selesai(int $id_return): void
     {
         DB::transaction(function () use ($id_return) {
-            // Cek log terakhir untuk referensi ini
-            $lastLog = StokLog::where('referensi_type', 'penjualan_return')
-                ->where('referensi_id', $id_return)
-                ->orderBy('id', 'desc')
-                ->first();
-
-            // Jika tidak ada log retur atau log terakhir adalah pembatalan, jangan proses lagi
-            if (!$lastLog || $lastLog->tipe === 'batal_retur') {
-                return;
-            }
-
             $return = ReturnPenjualan::with('details_return')->findOrFail($id_return);
 
-            // Ambil toko_id dari Penjualan asli
-            $penjualan = Penjualan::where('no_nota', $return->no_nota)->first();
-            $tokoId = $penjualan?->toko_id;
-
-            if (!$tokoId) {
-                throw new \Exception("Toko ID tidak ditemukan untuk nota {$return->no_nota}");
-            }
-
             foreach ($return->details_return as $detail) {
-                $stok = StokBarangToko::where('barang_id', $detail->id_barang)
-                    ->where('toko_id', $tokoId)
-                    ->lockForUpdate()
-                    ->first();
+                $barang = Barang::lockForUpdate()->find($detail->id_barang);
 
-                if (!$stok) {
+                if (!$barang) {
                     throw ValidationException::withMessages([
                         'stok' => "Stok {$detail->nama_barang} tidak ditemukan"
                     ]);
                 }
 
-                $stokSebelum = (float) $stok->stok;
+                $stokSebelum = (float) $barang->stok_buku_besar;
                 $stokSesudah = $stokSebelum - (float) $detail->qty;
 
                 if ($stokSesudah < 0) {
@@ -302,20 +193,10 @@ class StokPenyesuaianService
                     ]);
                 }
 
-                $stok->update([
-                    'stok' => $stokSesudah,
+                // Tarik kembali barang dari stok global utama
+                $barang->update([
+                    'stok_buku_besar' => $stokSesudah,
                 ]);
-
-                StokLogService::buatLog(
-                    barangId: $detail->id_barang,
-                    tokoId: $tokoId,
-                    tipe: 'batal_retur',
-                    qty: -(float) $detail->qty, // Negatif karena batal retur (barang keluar lagi)
-                    refType: "penjualan_return",
-                    refId: $id_return,
-                    stokTerakhir: $stokSebelum,
-                    stokSesudah: $stokSesudah
-                );
 
                 Notification::make()
                     ->title("Stok {$detail->nama_barang} berkurang (Batal Retur)")
@@ -331,13 +212,14 @@ class StokPenyesuaianService
         });
     }
 
+    /**
+     * Query Menampilkan Barang Berdasarkan Stok Utama Global (Tanpa Filter Toko)
+     */
     public static function queryBarangByToko(int $tokoId, int $penjualanId): Builder
     {
+        // Parameter $tokoId dipertahankan agar tidak merusak kode frontend, tetapi filternya diubah ke stok global
         return Barang::query()
-            ->whereHas('stokBarangTokos', function ($q) use ($tokoId) {
-                $q->where('toko_id', $tokoId)
-                    ->where('stok', '>', 0);
-            })
+            ->where('stok_buku_besar', '>', 0)
             ->whereDoesntHave('penjualanDetails', function ($q) use ($penjualanId) {
                 $q->where('penjualan_id', $penjualanId);
             });

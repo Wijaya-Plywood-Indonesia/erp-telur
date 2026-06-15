@@ -9,7 +9,6 @@ use App\Models\Pembeli;
 use App\Models\Penjualan;
 use App\Models\DetailPenjualan;
 use App\Models\RekeningPerusahaan;
-use App\Models\StokBarangToko;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Support\Collection;
@@ -126,7 +125,7 @@ class PosPenjualan extends Page
         foreach ($this->searchResults as $barang) {
             $barang->stok_aktual = $barang->stok_buku_besar;
         }
-        
+
         $this->showDropdown = true;
     }
 
@@ -363,10 +362,10 @@ class PosPenjualan extends Page
     /* ================= COMPUTED ================= */
     public function getKembalianProperty(): int
     {
-        $totalBayar = ($this->metode_pembayaran === 'TUNAI & TRANSFER') 
-            ? ($this->bayar_tunai + $this->bayar_transfer) 
+        $totalBayar = ($this->metode_pembayaran === 'TUNAI & TRANSFER')
+            ? ($this->bayar_tunai + $this->bayar_transfer)
             : ($this->bayar ?? 0);
-            
+
         return max($totalBayar - $this->total, 0);
     }
 
@@ -398,7 +397,7 @@ class PosPenjualan extends Page
                     $this->cart[$id]['member_discount_active'] = false;
                 }
             }
-            
+
             // Sync total_potongan and subtotal
             $this->cart[$id]['total_potongan'] = $this->cart[$id]['potongan'] * $this->cart[$id]['qty'];
             $this->updateSubtotal($id);
@@ -422,8 +421,8 @@ class PosPenjualan extends Page
             return;
         }
 
-        $totalBayar = ($this->metode_pembayaran === 'TUNAI & TRANSFER') 
-            ? ($this->bayar_tunai + $this->bayar_transfer) 
+        $totalBayar = ($this->metode_pembayaran === 'TUNAI & TRANSFER')
+            ? ($this->bayar_tunai + $this->bayar_transfer)
             : ($this->bayar ?? 0);
 
         if (!$this->is_member && $totalBayar < $this->total) {
@@ -466,10 +465,11 @@ class PosPenjualan extends Page
                     ? RekeningPerusahaan::find($this->rekening_perusahaan_id)
                     : null;
 
-                $totalBayar = ($this->metode_pembayaran === 'TUNAI & TRANSFER') 
-                    ? ($this->bayar_tunai + $this->bayar_transfer) 
+                $totalBayar = ($this->metode_pembayaran === 'TUNAI & TRANSFER')
+                    ? ($this->bayar_tunai + $this->bayar_transfer)
                     : ($this->bayar ?? 0);
 
+                // Menghapus 'toko_id' dari pembuatan data penjualan
                 $penjualan = Penjualan::create([
                     'no_nota' => $this->no_nota,
                     'tanggal' => $this->tanggal,
@@ -492,32 +492,24 @@ class PosPenjualan extends Page
                     'bayar_transfer' => ($this->metode_pembayaran === 'TUNAI & TRANSFER') ? $this->bayar_transfer : ($this->metode_pembayaran === 'TRANSFER' ? $this->bayar : 0),
                     'kembalian' => $this->kembalian,
                     'user_id' => auth()->id(),
-                    'toko_id' => $this->toko_id,
                 ]);
 
                 foreach ($this->cart as $item) {
-                    $barang = Barang::find($item['barang_id']);
-                    $stokBukuBesar = $barang ? $barang->stok_buku_besar : 0;
+                    // Kunci data barang untuk menghindari bentrokan stok (race condition)
+                    $barang = Barang::lockForUpdate()->find($item['barang_id']);
+                    $stokBukuBesar = $barang ? (float) $barang->stok_buku_besar : 0;
 
+                    // Validasi berdasarkan stok buku besar utama
                     if ($stokBukuBesar < $item['qty']) {
                         throw new \Exception("Stok {$item['nama_barang']} tidak mencukupi.");
                     }
 
-                    $stokToko = StokBarangToko::where('barang_id', $item['barang_id'])
-                        ->where('toko_id', $this->toko_id)
-                        ->lockForUpdate()
-                        ->first();
+                    // POTONG STOK: Langsung kurangi stok global pada tabel barang
+                    $barang->update([
+                        'stok_buku_besar' => $stokBukuBesar - $item['qty']
+                    ]);
 
-                    if (!$stokToko) {
-                        $stokToko = StokBarangToko::create([
-                            'barang_id' => $item['barang_id'],
-                            'toko_id' => $this->toko_id,
-                            'stok' => 0,
-                        ]);
-                    }
-
-                    $stokToko->kurang($item['qty']);
-
+                    // Simpan ke detail transaksi penjualan
                     DetailPenjualan::create([
                         'penjualan_id' => $penjualan->id,
                         'barang_id' => $item['barang_id'],
@@ -540,7 +532,6 @@ class PosPenjualan extends Page
                 ->body("Kembalian: Rp " . number_format($kembalian))
                 ->success()
                 ->send();
-
         } catch (\Exception $e) {
             Notification::make()
                 ->title('Transaksi Gagal')

@@ -9,6 +9,7 @@ use App\Models\StockOpnameDetail;
 use App\Models\StokBarangToko;
 use App\Services\StockOpnameService;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -36,7 +37,7 @@ class StockOpnamePage extends Page implements HasForms
      |  STATE
      ========================= */
 
-    public ?int $toko_id = null;
+    public ?string $tanggal_opname = null;
     public ?string $catatan = null;
 
     public ?StockOpname $opname = null;
@@ -77,15 +78,16 @@ class StockOpnamePage extends Page implements HasForms
     public function form(Schema $schema): Schema
     {
         return $schema->components([
-            Select::make('toko_id')
-                ->label('Pilih Toko')
-                ->options(
-                    IdentitasToko::where('status', 'aktif')
-                        ->pluck('nama_toko', 'id')
-                )
-                ->required()
-                ->searchable()
-                ->placeholder('Pilih toko untuk memulai opname'),
+            DatePicker::make('tanggal_opname')
+                ->label('Tanggal Opname')
+                ->native(false)
+                ->displayFormat('d/m/Y')
+                ->format('Y-m-d')
+                ->maxDate(now())
+                ->default(now())
+                ->closeOnDateSelection()
+                ->suffixIcon('heroicon-o-calendar')
+                ->suffixIconColor('primary'),
 
             Textarea::make('catatan')
                 ->label('Catatan Opname')
@@ -100,7 +102,7 @@ class StockOpnamePage extends Page implements HasForms
 
     public function refreshRiwayatOpname(): void
     {
-        $query = StockOpname::with(['toko', 'createdBy', 'approvedBy'])
+        $query = StockOpname::with(['createdBy', 'approvedBy'])
             ->where('status', 'disetujui');
 
         // Filter tanggal opname
@@ -116,7 +118,6 @@ class StockOpnamePage extends Page implements HasForms
         $this->riwayatOpname = $rows->map(fn($o) => [
             'id' => $o->id,
             'no_opname' => $o->no_opname,
-            'toko' => $o->toko->nama_toko ?? '-',
             'tanggal' => $o->tanggal_opname->format('d-m-Y'),
             'approved_by' => $o->approvedBy->name ?? '-',
             'approved_at' => $o->approved_at?->format('d-m-Y H:i') ?? '-',
@@ -126,7 +127,7 @@ class StockOpnamePage extends Page implements HasForms
 
     public function refreshDaftarOpname(): void
     {
-        $query = StockOpname::with(['toko', 'createdBy'])
+        $query = StockOpname::with(['createdBy'])
             ->whereIn('status', ['draft', 'menunggu', 'ditolak']);
 
         // Terapkan filter status jika dipilih (hanya untuk status berjalan)
@@ -147,7 +148,6 @@ class StockOpnamePage extends Page implements HasForms
         $this->daftarOpname = $rows->map(fn($o) => [
             'id' => $o->id,
             'no_opname' => $o->no_opname,
-            'toko' => $o->toko->nama_toko ?? '-',
             'tanggal' => $o->tanggal_opname->format('d-m-Y'),
             'status' => $o->status,
             'created_by' => $o->createdBy->name ?? '-',
@@ -195,15 +195,10 @@ class StockOpnamePage extends Page implements HasForms
     public function mulaiOpname(): void
     {
         $state = $this->form->getState();
-        $tokoId = $state['toko_id'] ?? null;
+        $tanggalOpname = $state['tanggal_opname'] ?? today()->format('Y-m-d');
 
-        if (!$tokoId) {
-            Notification::make()->title('Pilih toko terlebih dahulu')->danger()->send();
-            return;
-        }
-
-        // Lanjutkan jika ada opname draft/menunggu yang belum selesai
-        $existing = StockOpname::where('toko_id', $tokoId)
+        // Cek apakah sudah ada opname draft/menunggu di tanggal yang sama
+        $existing = StockOpname::whereDate('tanggal_opname', $tanggalOpname)
             ->whereIn('status', ['draft', 'menunggu'])
             ->latest()
             ->first();
@@ -212,14 +207,12 @@ class StockOpnamePage extends Page implements HasForms
             $this->opname = $existing;
         } else {
             $this->opname = StockOpname::create([
-                'toko_id' => $tokoId,
-                'tanggal_opname' => today(),
-                'catatan' => $state['catatan'] ?? null,
-                'status' => 'draft',
-                'created_by' => auth()->id(),
+                'tanggal_opname' => $tanggalOpname,
+                'catatan'        => $state['catatan'] ?? null,
+                'status'         => 'draft',
+                'created_by'     => auth()->id(),
             ]);
 
-            // Load semua barang aktif yang terhubung dengan akun jurnal (sama seperti Stok Matrix)
             $barangs = Barang::with(['subAnakAkun', 'satuan'])
                 ->whereHas('subAnakAkun', function ($query) {
                     $query->whereNotNull('kode_sub_anak_akun')
@@ -229,15 +222,14 @@ class StockOpnamePage extends Page implements HasForms
                 ->get();
 
             foreach ($barangs as $barang) {
-                // Sisa Stok dihitung dari total saldo berjalan (debet - kredit) Buku Besar JurnalUmum
                 $qtyJurnal = (float) ($barang->stok_buku_besar ?? 0.0);
 
                 StockOpnameDetail::create([
                     'stock_opname_id' => $this->opname->id,
-                    'barang_id' => $barang->id,
-                    'stok_sistem' => $qtyJurnal,
-                    'stok_aktual' => null,
-                    'selisih' => null,
+                    'barang_id'       => $barang->id,
+                    'stok_sistem'     => $qtyJurnal,
+                    'stok_aktual'     => null,
+                    'selisih'         => null,
                 ]);
             }
         }
@@ -465,7 +457,7 @@ class StockOpnamePage extends Page implements HasForms
                 ->send();
 
             // Bersihkan form halaman kustom Livewire kembali ke kondisi semula
-            $this->reset(['opname', 'details', 'catatan_approval', 'toko_id', 'catatan']);
+            $this->reset(['opname', 'details', 'catatan_approval', 'tanggal_opname', 'catatan']);
             $this->form->fill();
             $this->refreshDaftarOpname();
             $this->refreshRiwayatOpname();
@@ -492,7 +484,7 @@ class StockOpnamePage extends Page implements HasForms
 
             Notification::make()->title('Opname ditolak')->warning()->send();
 
-            $this->reset(['opname', 'details', 'catatan_approval', 'toko_id', 'catatan']);
+            $this->reset(['opname', 'details', 'catatan_approval', 'tanggal_opname', 'catatan']);
             $this->form->fill();
             $this->refreshDaftarOpname();
             $this->refreshRiwayatOpname();
@@ -507,7 +499,7 @@ class StockOpnamePage extends Page implements HasForms
 
     public function batal(): void
     {
-        $this->reset(['opname', 'details', 'catatan_approval', 'toko_id', 'catatan']);
+        $this->reset(['opname', 'details', 'catatan_approval', 'tanggal_opname', 'catatan']);
         $this->form->fill();
         $this->refreshDaftarOpname();
         $this->refreshRiwayatOpname();

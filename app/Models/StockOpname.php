@@ -12,7 +12,6 @@ class StockOpname extends Model
 
     protected $fillable = [
         'no_opname',
-        'toko_id',
         'tanggal_opname',
         'status',
         'catatan',
@@ -49,10 +48,6 @@ class StockOpname extends Model
      |  RELATIONSHIPS
      ========================= */
 
-    public function toko()
-    {
-        return $this->belongsTo(IdentitasToko::class, 'toko_id');
-    }
 
     public function details()
     {

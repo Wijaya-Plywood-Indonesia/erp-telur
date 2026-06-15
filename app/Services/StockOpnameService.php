@@ -4,8 +4,6 @@ namespace App\Services;
 
 use App\Models\StockOpname;
 use App\Models\StockOpnameDetail;
-use App\Models\StokBarangToko;
-use App\Models\StokLog;
 use Illuminate\Support\Facades\DB;
 use Exception;
 
@@ -39,7 +37,7 @@ class StockOpnameService
 
                 $detail->update([
                     'stok_aktual' => $stokAktual,
-                    'selisih' => $stokAktual - (float) $detail->stok_sistem,
+                    'selisih'     => $stokAktual - (float) $detail->stok_sistem,
                 ]);
             }
 
@@ -48,12 +46,19 @@ class StockOpnameService
     }
 
     /* =========================
-     |  APPROVE + ADJUST STOK
+     |  APPROVE
      ========================= */
 
     /**
-     * Approve opname: ubah status → disetujui dan adjust semua stok.
-     * Hanya barang yang ada selisih yang dibuatkan log adjustment.
+     * Approve opname: ubah status → disetujui.
+     *
+     * Penyesuaian stok ditangani sepenuhnya melalui Jurnal Pembantu
+     * yang dibuat langsung di StockOpnamePage::approve().
+     * Service ini hanya bertanggung jawab mengubah status dokumen opname.
+     *
+     * Kolom toko_id sudah dihapus dari stock_opnames (opname sekarang
+     * bersifat global, tidak per toko), sehingga StokBarangToko dan
+     * StokLog tidak lagi digunakan di sini.
      */
     public function approve(StockOpname $opname, int $approverId, ?string $catatanApproval = null): void
     {
@@ -61,53 +66,12 @@ class StockOpnameService
             throw new Exception('Hanya opname berstatus menunggu yang bisa disetujui.');
         }
 
-        DB::transaction(function () use ($opname, $approverId, $catatanApproval) {
-
-            foreach ($opname->details as $detail) {
-
-                // Lewati barang yang tidak ada selisih — tidak perlu adjust
-                if ((float) $detail->selisih == 0) {
-                    continue;
-                }
-
-                $stok = StokBarangToko::lockForUpdate()
-                    ->where('barang_id', $detail->barang_id)
-                    ->where('toko_id', $opname->toko_id)
-                    ->first();
-
-                if (!$stok) {
-                    $stok = StokBarangToko::create([
-                        'barang_id' => $detail->barang_id,
-                        'toko_id' => $opname->toko_id,
-                        'stok' => 0,
-                    ]);
-                }
-
-                $stokSebelum = (float) $stok->stok;
-                $stokSesudah = (float) $detail->stok_aktual;
-
-                $stok->update(['stok' => $stokSesudah]);
-
-                StokLog::create([
-                    'barang_id' => $detail->barang_id,
-                    'toko_id' => $opname->toko_id,
-                    'tipe' => 'adjustment',
-                    'qty' => abs($detail->selisih),
-                    'stok_sebelum' => $stokSebelum,
-                    'stok_sesudah' => $stokSesudah,
-                    'referensi_type' => 'stock_opname',
-                    'referensi_id' => $opname->id,
-                    'created_by' => $approverId,
-                ]);
-            }
-
-            $opname->update([
-                'status' => 'disetujui',
-                'approved_by' => $approverId,
-                'approved_at' => now(),
-                'catatan_approval' => $catatanApproval,
-            ]);
-        });
+        $opname->update([
+            'status'           => 'disetujui',
+            'approved_by'      => $approverId,
+            'approved_at'      => now(),
+            'catatan_approval' => $catatanApproval,
+        ]);
     }
 
     /* =========================
@@ -120,11 +84,10 @@ class StockOpnameService
             throw new Exception('Hanya opname berstatus menunggu yang bisa ditolak.');
         }
 
-        // Set kembali ke draft agar petugas bisa revisi dan submit ulang
         $opname->update([
-            'status' => 'ditolak',
-            'approved_by' => $approverId,
-            'approved_at' => now(),
+            'status'           => 'ditolak',
+            'approved_by'      => $approverId,
+            'approved_at'      => now(),
             'catatan_approval' => $catatanApproval,
         ]);
     }

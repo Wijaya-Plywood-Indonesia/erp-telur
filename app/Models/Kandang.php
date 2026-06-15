@@ -21,7 +21,10 @@ class Kandang extends Model
     {
         return $this->hasMany(Ayam::class, 'id_kandang');
     }
-
+    public function subAnakAkun()
+    {
+        return $this->hasOne(SubAnakAkun::class, 'id_kandang');
+    }
     public function produksiTelurs()
     {
         return $this->hasMany(ProduksiTelur::class, 'id_kandang');
@@ -35,5 +38,9 @@ class Kandang extends Model
     public function getTerisiAttribute(): bool
     {
         return $this->ayam()->exists();
+    }
+    public function ayamAktif()
+    {
+        return $this->hasOne(Ayam::class, 'id_kandang')->latest('tanggal_masuk');
     }
 }
