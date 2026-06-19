@@ -79,11 +79,11 @@ class PosPenjualan extends Page
     public function generateNoNota()
     {
         if (!$this->toko_id) {
-            return 'XXX-000001';
+            return 'NOTA-000001';
         }
 
         $toko = IdentitasToko::find($this->toko_id);
-        $prefix = ($toko?->kode_toko ?? 'XXX') . '-';
+        $prefix = ($toko?->kode_toko ?? 'NOTA') . '-';
 
         $last = Penjualan::where('no_nota', 'LIKE', $prefix . '%')
             ->orderBy('id', 'DESC')
