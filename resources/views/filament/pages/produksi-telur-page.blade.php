@@ -56,8 +56,7 @@
                     <input
                         type="date"
                         wire:model.live="tanggal"
-                        class="border border-gray-300 dark:border-gray-700 px-2.5 py-1.5 text-xs font-bold bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:border-gray-500 rounded-none shadow-inner"
-                        {{ !$isEditable ? 'disabled' : '' }}>
+                        class="border border-gray-300 dark:border-gray-700 px-2.5 py-1.5 text-xs font-bold bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:border-gray-500 rounded-none shadow-inner">
                 </div>
             </div>
 

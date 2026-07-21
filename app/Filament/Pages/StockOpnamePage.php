@@ -282,23 +282,36 @@ class StockOpnamePage extends Page implements HasForms
                 return $d->barang && $d->barang->subAnakAkun && !empty($d->barang->subAnakAkun->kode_sub_anak_akun);
             })
             ->map(function ($d) {
-                // Jika masih draft, pastikan stok_sistem dinamis mengikuti saldo JurnalUmum (stok_buku_besar) real-time
                 $stokSistem = $this->opname->isDraft()
                     ? (float) ($d->barang?->stok_buku_besar ?? 0.0)
                     : (float) $d->stok_sistem;
-
+                $konversi = $this->getKonversiSakInfo($d->barang_id);
                 return [
                     'id' => $d->id,
                     'barang_id' => $d->barang_id,
                     'barang' => $d->barang->nama_barang ?? '-',
                     'kode' => $d->barang->kode_barang ?? '-',
                     'stok_sistem' => $stokSistem,
+                    'stok_sistem_sak' => $konversi > 1 ? round($stokSistem / $konversi, 2) : null,
+                    'konversi_info' => $konversi > 1 ? $konversi : null,
                     'stok_aktual' => $d->stok_aktual !== null ? (string) $d->stok_aktual : '',
                     'catatan' => $d->catatan ?? '',
                 ];
             })
             ->values()
             ->toArray();
+    }
+
+    private function getKonversiSakInfo(int $barangId): float
+    {
+        $satuanSak = \App\Models\Satuan::whereRaw('LOWER(nama_satuan) = ?', ['sak'])->first();
+        if (!$satuanSak) return 1;
+
+        $k = \App\Models\SatuanKonversi::where('id_barang', $barangId)
+            ->where('id_satuan_asal', $satuanSak->id)
+            ->first(); // tanpa scope aktif() — ini murni info, boleh baca data nonaktif juga
+
+        return $k ? (float) $k->nilai_konversi : 1;
     }
 
     /* =========================
@@ -511,6 +524,6 @@ class StockOpnamePage extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->hasAnyRole(['super_admin', 'manager']) ?? false;
+        return auth()->user()?->hasAnyRole(['super_admin', 'admin']) ?? false;
     }
 }

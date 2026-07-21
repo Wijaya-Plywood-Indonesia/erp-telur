@@ -84,4 +84,10 @@ class StockOpname extends Model
     {
         return $this->status === 'ditolak';
     }
+
+    public function jurnalPembantuHeaders()
+    {
+        return $this->hasMany(JurnalPembantuHeader::class, 'no_dokumen', 'no_opname')
+            ->where('modul_asal', 'stock_opname');
+    }
 }

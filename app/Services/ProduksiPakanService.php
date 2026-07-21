@@ -5,8 +5,6 @@ namespace App\Services;
 use App\Models\JurnalPembantuHeader;
 use App\Models\JurnalPembantuItem;
 use App\Models\ProduksiPakan;
-use App\Models\Satuan;
-use App\Models\SatuanKonversi;
 use App\Models\SubAnakAkun;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -48,12 +46,6 @@ class ProduksiPakanService
         ]);
 
         $adaMentah = $produksi->pakanMentahs->contains(
-            fn($i) => (float)$i->keluar_pullet > 0
-                || (float)$i->keluar_l1 > 0
-                || (float)$i->keluar_l2 > 0
-        );
-
-        $adaCampuranKeluar = $produksi->pakanCampurans->contains(
             fn($i) => (float)$i->keluar_pullet > 0
                 || (float)$i->keluar_l1 > 0
                 || (float)$i->keluar_l2 > 0
@@ -113,7 +105,6 @@ class ProduksiPakanService
             $barang   = $mentah->barang;
             $id       = $barang->id;
             $harga    = (float)($barang->harga_jual ?? 0);
-            $konversi = $this->getKonversiSak($id); // Sekarang mengembalikan 50 jika berupa Sak
 
             // Menggunakan round() untuk menghindari miss desimal di pembukuan
             $nilaiTambahan = round($jumlahKg * $harga, 2);
@@ -124,7 +115,6 @@ class ProduksiPakanService
                     'totalKg'    => 0.0,
                     'totalNilai' => 0.0,
                     'harga'      => $harga,
-                    'konversi'   => $konversi,
                 ];
             }
 
@@ -598,25 +588,6 @@ class ProduksiPakanService
     /* ═══════════════════════════════════════════════════════════════════════
     |  HELPERS
     ═══════════════════════════════════════════════════════════════════════ */
-
-    private function getKonversiSak(?int $barangId): float
-    {
-        if (!$barangId) return 1;
-        if (isset($this->konversiCache[$barangId])) return $this->konversiCache[$barangId];
-
-        $satuanSak = Satuan::whereRaw('LOWER(nama_satuan) = ?', ['sak'])->first();
-        if (!$satuanSak) return $this->konversiCache[$barangId] = 1;
-
-        // Baca nilai aktual dari DB, bukan exists() saja
-        $konversi = SatuanKonversi::where('id_barang', $barangId)
-            ->where('id_satuan_asal', $satuanSak->id)
-            ->aktif()
-            ->first();
-
-        return $this->konversiCache[$barangId] = $konversi
-            ? (float) $konversi->nilai_konversi  // ← nilai real dari DB
-            : 1;
-    }
     private function getNamaAkun(string $kode): string
     {
         if (isset($this->akunCache[$kode])) return $this->akunCache[$kode];
