@@ -340,7 +340,7 @@
                                 <td class="px-2 py-1.5 text-center">
                                     <input
                                         type="number"
-                                        wire:model.lazy="mentahState.{{ $idx }}.masuk_sak"
+                                        wire:model.lazy="mentahState.{{ $idx }}.masuk"
                                         {{ !$canEdit ? 'disabled' : '' }}
                                         min="0"
                                         step="any"
@@ -348,13 +348,13 @@
                                         class="inline-block w-24 rounded-md bg-green-50 px-2.5 py-1 text-sm font-semibold text-green-700 text-center border-0 focus:ring-2 focus:ring-green-500 focus:bg-green-100 dark:bg-green-400/10 dark:text-green-400 dark:focus:ring-green-400 dark:focus:bg-green-400/20 disabled:opacity-50 disabled:cursor-not-allowed" />
                                 </td>
                                 <td class="px-2 py-1.5">
-                                    <input type="number" wire:model.lazy="mentahState.{{ $idx }}.p_sak" {{ !$canEdit ? 'disabled' : '' }} class="cell-input" min="0" step="any" placeholder="0" />
+                                    <input type="number" wire:model.lazy="mentahState.{{ $idx }}.p" {{ !$canEdit ? 'disabled' : '' }} class="cell-input" min="0" step="any" placeholder="0" />
                                 </td>
                                 <td class="px-2 py-1.5">
-                                    <input type="number" wire:model.lazy="mentahState.{{ $idx }}.l1_sak" {{ !$canEdit ? 'disabled' : '' }} class="cell-input" min="0" step="any" placeholder="0" />
+                                    <input type="number" wire:model.lazy="mentahState.{{ $idx }}.l1" {{ !$canEdit ? 'disabled' : '' }} class="cell-input" min="0" step="any" placeholder="0" />
                                 </td>
                                 <td class="px-2 py-1.5">
-                                    <input type="number" wire:model.lazy="mentahState.{{ $idx }}.l2_sak" {{ !$canEdit ? 'disabled' : '' }} class="cell-input" min="0" step="any" placeholder="0" />
+                                    <input type="number" wire:model.lazy="mentahState.{{ $idx }}.l2" {{ !$canEdit ? 'disabled' : '' }} class="cell-input" min="0" step="any" placeholder="0" />
                                 </td>
                                 <td class="px-4 py-2.5 text-center">
                                     <span class="inline-block rounded-md bg-amber-50 px-2.5 py-1 text-sm font-bold text-amber-700 dark:bg-amber-400/10 dark:text-amber-400">
