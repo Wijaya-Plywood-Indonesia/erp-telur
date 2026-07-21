@@ -1,7 +1,22 @@
 @php
 $saldoNormal = strtolower($saldoNormal ?? 'debit');
 $isKredit    = in_array($saldoNormal, ['kredit', 'credit', 'k']);
-$running     = (float) $saldoAwal;
+
+// $saldoAwalQty bernilai null jika akun ini BUKAN akun persediaan satu
+// barang (mis. akun Penjualan/HPP yang menerima posting dari banyak
+// barang dengan satuan berbeda-beda). Untuk kasus itu, agregat qty
+// (saldo awal & total mutasi) tidak punya arti fisik dan harus
+// ditampilkan sebagai "—", bukan angka gado-gado hasil SUM lintas satuan.
+$isPersediaan = !is_null($saldoAwalQty);
+
+// $saldoAwal dan $saldoAwalQty datang dari controller dalam konvensi RAW
+// (debit positif). Untuk akun kredit-normal, tanda perlu dibalik dulu di
+// sini supaya konsisten dengan cara $running dihitung di bawah (yang
+// menambah saat kredit, mengurangi saat debit untuk akun kredit-normal).
+$saldoAwal    = $isKredit ? -(float) $saldoAwal : (float) $saldoAwal;
+$saldoAwalQty = $isKredit ? -(float) ($saldoAwalQty ?? 0) : (float) ($saldoAwalQty ?? 0);
+
+$running     = $saldoAwal;
 $totalDebit  = 0.0;
 $totalKredit = 0.0;
 $totalQty    = 0.0;
@@ -40,6 +55,11 @@ $rows = $transaksis->map(function ($trx) use (&$running, &$totalDebit, &$totalKr
 
 $saldoAkhir = $running;
 $saldoClass = $saldoAkhir < 0 ? 'lgt-neg' : '';
+
+// Stok akhir kumulatif (bukan cuma mutasi bulan ini) — ini yang harusnya
+// dibaca sebagai "sisa stok saat ini", dan akan sama dengan angka di
+// Stok Matrix / Stock Opname. Hanya relevan untuk akun persediaan.
+$saldoAkhirQty = $isPersediaan ? ($saldoAwalQty + $totalQty) : null;
 @endphp
 
 <style>
@@ -124,7 +144,15 @@ $saldoClass = $saldoAkhir < 0 ? 'lgt-neg' : '';
                 style="font-size:.65rem;letter-spacing:.06em;text-transform:uppercase">
                 Saldo Awal Periode
             </td>
-            <td class="lgt-qty r">—</td>
+            <td class="lgt-qty r">
+                @if($isPersediaan && $saldoAwalQty != 0)
+                    <span class="{{ $saldoAwalQty < 0 ? 'lgt-neg' : '' }}">
+                        {{ (float)$saldoAwalQty == (int)$saldoAwalQty ? number_format(abs($saldoAwalQty), 0, ',', '.') : rtrim(rtrim(number_format(abs($saldoAwalQty), 4, ',', '.'), '0'), ',') }}
+                    </span>
+                @else
+                    —
+                @endif
+            </td>
             <td class="lgt-harga r">—</td>
             <td class="lgt-debit r">—</td>
             <td class="lgt-kredit r">—</td>
@@ -194,7 +222,7 @@ $saldoClass = $saldoAkhir < 0 ? 'lgt-neg' : '';
         <tr class="lgt-foot">
             <td colspan="4" class="lgt-foot-lbl">Total Mutasi Bulan Ini</td>
             <td class="lgt-qty r">
-                @if($totalQty != 0)
+                @if($isPersediaan && $totalQty != 0)
                     <span class="{{ $totalQty < 0 ? 'lgt-neg' : '' }}">
                         {{ (float)$totalQty == (int)$totalQty ? number_format(abs($totalQty), 0, ',', '.') : rtrim(rtrim(number_format(abs($totalQty), 4, ',', '.'), '0'), ',') }}
                     </span>
@@ -214,6 +242,20 @@ $saldoClass = $saldoAkhir < 0 ? 'lgt-neg' : '';
                 {{ number_format(abs($saldoAkhir), 0, ',', '.') }}
             </td>
         </tr>
+        @if($isPersediaan)
+        <tr class="lgt-foot" style="background:var(--bb-accent-soft)">
+            <td colspan="4" class="lgt-foot-lbl" style="color:var(--bb-accent-text)">Stok Akhir (Kumulatif)</td>
+            <td class="lgt-qty r" style="color:var(--bb-accent-text);font-weight:800">
+                <span class="{{ $saldoAkhirQty < 0 ? 'lgt-neg' : '' }}">
+                    {{ (float)$saldoAkhirQty == (int)$saldoAkhirQty ? number_format(abs($saldoAkhirQty), 0, ',', '.') : rtrim(rtrim(number_format(abs($saldoAkhirQty), 4, ',', '.'), '0'), ',') }}
+                </span>
+            </td>
+            <td class="lgt-harga r"></td>
+            <td class="lgt-debit r"></td>
+            <td class="lgt-kredit r"></td>
+            <td class="lgt-saldo r"></td>
+        </tr>
+        @endif
     </tfoot>
 </table>
 </div>
