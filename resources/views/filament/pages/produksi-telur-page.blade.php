@@ -228,6 +228,205 @@
                 </tfoot>
             </table>
         </div>
+
+        <!-- Hasil Korektor -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+
+            {{-- ── KIRI: Tabel Analisa Korektor (2/3 lebar) ── --}}
+            <div class="lg:col-span-2 bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-none shadow-md overflow-hidden">
+
+                <!-- Header Box -->
+                <div class="px-2.5 py-2 sm:px-4 sm:py-3 border-b border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 flex items-center justify-between gap-2">
+                    <div>
+                        <h3 class="text-xs sm:text-sm font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider flex items-center gap-1.5 sm:gap-2">
+                            <x-heroicon-o-clipboard-document-check class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500 shrink-0" />
+                            <span>Hasil Analisa Korektor</span>
+                        </h3>
+                    </div>
+                    <span class="text-[9px] sm:text-[10px] px-1.5 py-0.5 sm:px-2 sm:py-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400 rounded-none font-bold uppercase tracking-wider whitespace-nowrap">
+                        Auto-Sync <span class="hidden xs:inline">dengan Kandang</span>
+                    </span>
+                </div>
+
+                <!-- Table Responsive Wrapper -->
+                <div class="overflow-x-auto w-full">
+                    <table class="w-full text-xs sm:text-sm border-collapse min-w-[340px]">
+                        <thead>
+                            <tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-b border-zinc-300 dark:border-zinc-800 text-left">
+                                <th class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-black text-[9px] sm:text-[11px] uppercase tracking-wider">Komponen / Item</th>
+                                <th class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-black text-[9px] sm:text-[11px] uppercase tracking-wider text-center w-24 sm:w-36">Nilai Input</th>
+                                <th class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-black text-[9px] sm:text-[11px] uppercase tracking-wider text-center w-12 sm:w-20">Satuan</th>
+                                <th class="p-1.5 sm:p-2.5 font-black text-[9px] sm:text-[11px] uppercase tracking-wider text-right">Hasil Konversi (Kg)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+
+                            {{-- 1. Peti --}}
+                            <tr class="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/20">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-bold text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm">
+                                    <div class="flex items-center justify-between gap-1 flex-wrap xs:flex-nowrap">
+                                        <span>1. Peti</span>
+                                        <span class="text-[9px] sm:text-[10px] font-semibold text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5">@10 Kg/Pt</span>
+                                    </div>
+                                </td>
+                                <td class="p-1 sm:p-1.5 border-r border-zinc-300 dark:border-zinc-800 text-center">
+                                    <input type="number" wire:model.live.debounce.500ms="korektorPeti" placeholder="0"
+                                        class="w-full text-center font-bold text-xs sm:text-sm border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 py-1 sm:py-1.5 rounded-none outline-none focus:ring-2 focus:ring-teal-500"
+                                        {{ !$isEditable ? 'disabled' : '' }}>
+                                </td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 font-semibold text-xs sm:text-sm">Pt</td>
+                                <td class="p-1.5 sm:p-2.5 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                                    {{ number_format(($korektorPeti ?? 0) * 10, 1) }} Kg
+                                </td>
+                            </tr>
+
+                            {{-- 2. Kiloan --}}
+                            <tr class="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/20">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-bold text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm">2. Kiloan</td>
+                                <td class="p-1 sm:p-1.5 border-r border-zinc-300 dark:border-zinc-800 text-center">
+                                    <input type="number" step="0.1" wire:model.live.debounce.500ms="korektorKiloan" placeholder="0"
+                                        class="w-full text-center font-bold text-xs sm:text-sm border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 py-1 sm:py-1.5 rounded-none outline-none focus:ring-2 focus:ring-teal-500"
+                                        {{ !$isEditable ? 'disabled' : '' }}>
+                                </td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 font-semibold text-xs sm:text-sm">Kg</td>
+                                <td class="p-1.5 sm:p-2.5 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                                    {{ number_format($korektorKiloan ?? 0, 1) }} Kg
+                                </td>
+                            </tr>
+
+                            {{-- 3. Sisa --}}
+                            <tr class="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/20">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-bold text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm">3. Sisa</td>
+                                <td class="p-1 sm:p-1.5 border-r border-zinc-300 dark:border-zinc-800 text-center">
+                                    <input type="number" step="0.1" wire:model.live.debounce.500ms="korektorSisa" placeholder="0"
+                                        class="w-full text-center font-bold text-xs sm:text-sm border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 py-1 sm:py-1.5 rounded-none outline-none focus:ring-2 focus:ring-teal-500"
+                                        {{ !$isEditable ? 'disabled' : '' }}>
+                                </td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 font-semibold text-xs sm:text-sm">Kg</td>
+                                <td class="p-1.5 sm:p-2.5 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                                    {{ number_format($korektorSisa ?? 0, 1) }} Kg
+                                </td>
+                            </tr>
+
+                            {{-- 4. Bentes --}}
+                            <tr class="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/20">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 font-bold text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm">4. Bentes (Retak)</td>
+                                <td class="p-1 sm:p-1.5 border-r border-zinc-300 dark:border-zinc-800 text-center">
+                                    <input type="number" step="0.1" wire:model.live.debounce.500ms="korektorBentes" placeholder="0"
+                                        class="w-full text-center font-bold text-xs sm:text-sm border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 py-1 sm:py-1.5 rounded-none outline-none focus:ring-2 focus:ring-teal-500"
+                                        {{ !$isEditable ? 'disabled' : '' }}>
+                                </td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 font-semibold text-xs sm:text-sm">Kg</td>
+                                <td class="p-1.5 sm:p-2.5 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                                    {{ number_format($korektorBentes ?? 0, 1) }} Kg
+                                </td>
+                            </tr>
+
+                            {{-- Total Analisa Korektor --}}
+                            <tr class="bg-emerald-50/60 dark:bg-emerald-950/20 font-black border-t-2 border-zinc-300 dark:border-zinc-800">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm">Total Korektor</td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm">{{ number_format($korektorTotalKg, 1) }}</td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm">Kg</td>
+                                <td class="p-1.5 sm:p-2.5 text-right text-emerald-700 dark:text-emerald-400 text-xs sm:text-base">{{ number_format($korektorTotalKg, 1) }} Kg</td>
+                            </tr>
+
+                            {{-- dr KD (Dari Kandang) --}}
+                            <tr class="bg-zinc-50 dark:bg-zinc-900 font-black">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs sm:text-sm">
+                                    <span class="inline-flex items-center gap-1">
+                                        <span>Dari Kandang</span>
+                                        <x-heroicon-o-link class="w-3 h-3 text-sky-500 shrink-0" title="Terkoneksi dengan Total Produksi Kandang" />
+                                    </span>
+                                </td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-sky-600 dark:text-sky-400 text-xs sm:text-sm">{{ number_format($grandTotal['kilo'], 1) }}</td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 text-xs sm:text-sm">Kg</td>
+                                <td class="p-1.5 sm:p-2.5 text-right text-sky-600 dark:text-sky-400 text-xs sm:text-base">{{ number_format($grandTotal['kilo'], 1) }} Kg</td>
+                            </tr>
+
+                            {{-- Selisih --}}
+                            <tr class="border-t-2 border-zinc-400 dark:border-zinc-700 font-black
+                        @if(($statusKorektor['color'] ?? '') === 'success') bg-emerald-100/60 dark:bg-emerald-950/30
+                        @elseif(($statusKorektor['color'] ?? '') === 'warning') bg-amber-100/60 dark:bg-amber-950/30
+                        @else bg-rose-100/60 dark:bg-rose-950/30 @endif">
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm">Selisih</td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-xs sm:text-base">{{ $selisihKg > 0 ? '+' : '' }}{{ number_format($selisihKg, 1) }}</td>
+                                <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 text-xs sm:text-sm">Kg</td>
+                                <td class="p-1.5 sm:p-2.5 text-right text-xs sm:text-lg">{{ $selisihKg > 0 ? '+' : '' }}{{ number_format($selisihKg, 1) }} Kg</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {{-- ── KANAN: Status Rekonsiliasi (1/3 lebar) ── --}}
+            <div class="bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-none shadow-md p-3 sm:p-4 flex flex-col justify-between">
+                <div>
+                    <h3 class="text-xs sm:text-sm font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-1.5 sm:gap-2">
+                        <x-heroicon-o-chart-bar class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500 shrink-0" />
+                        <span>Status Rekonsiliasi</span>
+                    </h3>
+
+                    @php
+                    $color = $statusKorektor['color'] ?? 'success';
+                    $icon = match($color) {
+                    'success' => 'heroicon-o-check-circle',
+                    'warning' => 'heroicon-o-exclamation-triangle',
+                    default => 'heroicon-o-x-circle',
+                    };
+                    $bgClass = match($color) {
+                    'success' => 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/50',
+                    'warning' => 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50',
+                    default => 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/50',
+                    };
+                    $textClass = match($color) {
+                    'success' => 'text-emerald-600 dark:text-emerald-400',
+                    'warning' => 'text-amber-600 dark:text-amber-400',
+                    default => 'text-rose-600 dark:text-rose-400',
+                    };
+                    @endphp
+
+                    <div class="p-2.5 sm:p-4 border rounded-none text-center mb-3 sm:mb-4 {{ $bgClass }}">
+                        <x-dynamic-component :component="$icon" class="w-7 h-7 sm:w-9 sm:h-9 mx-auto mb-1 {{ $textClass }}" />
+                        <div class="font-black text-xs sm:text-base {{ $textClass }}">{{ $statusKorektor['label'] ?? '-' }}</div>
+                        <div class="text-[10px] sm:text-xs mt-0.5 sm:mt-1 opacity-80 {{ $textClass }}">
+                            @if($color === 'success')
+                            Tidak ada perbedaan antara Kandang &amp; Korektor
+                            @elseif($color === 'warning')
+                            {{-- 🛠️ UBAH TEKS < 1.0 Kg MENJADI < 2.0 Kg PADA BARIS INI: --}}
+                            Selisih dalam batas toleransi (&lt; 2.0 Kg)
+                            @else
+                            Perlu pengecekan ulang data penimbangan!
+                            @endif
+                        </div>
+                    </div>
+                    <!-- Detail Breakdown -->
+                    <div class="space-y-1 sm:space-y-1.5 text-[11px] sm:text-xs bg-zinc-50 dark:bg-zinc-900 p-2.5 sm:p-3 border border-zinc-200 dark:border-zinc-800">
+                        <div class="flex justify-between py-0.5 sm:py-1 border-b border-zinc-200 dark:border-zinc-800">
+                            <span class="text-zinc-500 dark:text-zinc-400">Total Fisik Korektor:</span>
+                            <span class="font-black text-zinc-800 dark:text-zinc-100">{{ number_format($korektorTotalKg, 1) }} Kg</span>
+                        </div>
+                        <div class="flex justify-between py-0.5 sm:py-1 border-b border-zinc-200 dark:border-zinc-800">
+                            <span class="text-zinc-500 dark:text-zinc-400">Total Laporan Kandang:</span>
+                            <span class="font-black text-zinc-800 dark:text-zinc-100">{{ number_format($grandTotal['kilo'], 1) }} Kg</span>
+                        </div>
+                        <div class="flex justify-between py-0.5 sm:py-1 font-black">
+                            <span class="text-zinc-600 dark:text-zinc-300">Margin Selisih:</span>
+                            <span class="text-amber-600 dark:text-amber-400">{{ $selisihKg > 0 ? '+' : '' }}{{ number_format($selisihKg, 1) }} Kg</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Textarea Notes -->
+                <div class="mt-3 sm:mt-4">
+                    <label class="block text-[9px] sm:text-[10px] font-black text-zinc-400 uppercase mb-1">Catatan Korektor / Petugas</label>
+                    <textarea wire:model.live.debounce.500ms="korektorCatatan" rows="3"
+                        placeholder="Tuliskan catatan selisih atau kondisi telur di sini..."
+                        class="w-full border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[11px] sm:text-xs p-1.5 sm:p-2 rounded-none outline-none focus:ring-2 focus:ring-teal-500"
+                        {{ !$isEditable ? 'disabled' : '' }}></textarea>
+                </div>
+            </div>
+
+        </div>
         @endif
     </div>
 

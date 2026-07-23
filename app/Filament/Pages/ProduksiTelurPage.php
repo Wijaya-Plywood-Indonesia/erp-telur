@@ -44,6 +44,19 @@ class ProduksiTelurPage extends Page
      */
     public array $gridData = [];
 
+    // ─── State Analisa Korektor ──────────────────────────────
+    public ?int   $korektorPeti     = null;
+    public ?float $korektorKiloan   = null;
+    public ?float $korektorSisa     = null;
+    public ?float $korektorBentes   = null;
+    public ?string $korektorCatatan = null;
+
+    public float $korektorTotalKg = 0.0;
+    public float $selisihKg       = 0.0;
+    public array $statusKorektor  = [];
+
+    private const KG_PER_PETI = 10.0;
+
     /**
      * Dropdown pilihan pakan campuran aktif per kandang:
      * $kandangPakan[id_kandang] = id_produksi_pakan_campuran
@@ -167,6 +180,8 @@ class ProduksiTelurPage extends Page
         $produksi = ProduksiTelur::whereDate('tanggal', $this->tanggal)->first();
 
         if (! $produksi) {
+            $this->korektorPeti = $this->korektorKiloan = $this->korektorSisa = $this->korektorBentes = null;
+            $this->korektorCatatan = null;
             $this->resetMatrix();
 
             // ✅ TAMBAHAN: Jika DB kosong, coba restore dari session
@@ -179,6 +194,12 @@ class ProduksiTelurPage extends Page
 
         $this->produksiTelurId = $produksi->id;
         $this->is_validated    = (bool) $produksi->is_validated;
+
+        $this->korektorPeti     = $produksi->korektor_peti;
+        $this->korektorKiloan   = $produksi->korektor_kiloan;
+        $this->korektorSisa     = $produksi->korektor_sisa;
+        $this->korektorBentes   = $produksi->korektor_bentes;
+        $this->korektorCatatan  = $produksi->korektor_catatan;
 
         // Evaluasi perizinan dan peran
         $this->computePermissions($produksi);
@@ -275,6 +296,13 @@ class ProduksiTelurPage extends Page
                 $this->saveToSession();
             }
         }
+
+        if (str_starts_with($propertyName, 'korektor')) {
+            $this->hitungKorektor();
+            if (! $this->produksiTelurId) {
+                $this->saveToSession();
+            }
+        }
     }
 
     public function recalculate(): void
@@ -302,6 +330,27 @@ class ProduksiTelurPage extends Page
                 }
             }
         }
+
+        $this->hitungKorektor();
+    }
+
+    public function hitungKorektor(): void
+    {
+        $petiKg = ($this->korektorPeti ?? 0) * self::KG_PER_PETI;
+
+        $this->korektorTotalKg = round(
+            $petiKg + ($this->korektorKiloan ?? 0) + ($this->korektorSisa ?? 0) + ($this->korektorBentes ?? 0),
+            2
+        );
+
+        $this->selisihKg = round($this->korektorTotalKg - $this->grandTotal['kilo'], 2);
+
+        $abs = abs($this->selisihKg);
+        $this->statusKorektor = match (true) {
+            $abs == 0.0 => ['label' => 'Sesuai (Presisi)', 'color' => 'success'],
+            $abs <= 2.0 => ['label' => 'Selisih Wajar',     'color' => 'warning'],
+            default     => ['label' => 'Selisih Tinggi',    'color' => 'danger'],
+        };
     }
 
     // ─── Evaluasi Izin Pengeditan & Validasi ─────────────────
@@ -446,7 +495,14 @@ class ProduksiTelurPage extends Page
 
             $produksi = ProduksiTelur::updateOrCreate(
                 ['tanggal' => $this->tanggal],
-                ['created_by' => $userId]
+                [
+                    'created_by'       => $userId,
+                    'korektor_peti'    => $this->korektorPeti,
+                    'korektor_kiloan'  => $this->korektorKiloan,
+                    'korektor_sisa'    => $this->korektorSisa,
+                    'korektor_bentes'  => $this->korektorBentes,
+                    'korektor_catatan' => $this->korektorCatatan,
+                ]
             );
 
             $this->produksiTelurId = $produksi->id;
