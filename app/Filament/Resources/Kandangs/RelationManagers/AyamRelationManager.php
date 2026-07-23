@@ -4,6 +4,8 @@ namespace App\Filament\Resources\Kandangs\RelationManagers;
 
 use App\Filament\Resources\Kandangs\KandangResource;
 use App\Models\Kandang;
+use App\Models\SubAnakAkun;
+use Carbon\Carbon;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -32,8 +34,21 @@ class AyamRelationManager extends RelationManager
         return $schema
             ->components([
 
-                TextInput::make('nama_batch')
-                    ->label('Nama Batch'),
+                Select::make('id_sub_anak_akun')
+                    ->label('Akun Ayam (CoA)')
+                    ->relationship('subAnakAkun', 'nama_sub_anak_akun')
+                    ->searchable()
+                    ->preload()
+                    ->live()
+                    ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                        if ($state && empty($get('nama_batch'))) {
+                            $subAkun = SubAnakAkun::find($state);
+                            if ($subAkun) {
+                                $set('nama_batch', $subAkun->nama_sub_anak_akun);
+                            }
+                        }
+                    })
+                    ->required(),
 
                 DatePicker::make('tanggal_masuk')
                     ->native(false)
@@ -74,8 +89,12 @@ class AyamRelationManager extends RelationManager
             ->recordTitleAttribute('nama_batch')
             ->columns([
                 TextColumn::make('nama_batch')
-                    ->label('Nama Batch')
-                    ->searchable(),
+                    ->label('Nama Batch / Akun')
+                    ->searchable()
+                    ->state(function ($record) {
+                        return trim(preg_replace('/\s*\(\d+[^)]*\)/i', '', $record->nama_batch));
+                    })
+                    ->description(fn($record) => $record->subAnakAkun?->kode_sub_anak_akun ?? '-'),
 
                 TextColumn::make('tanggal_masuk')
                     ->label('Tanggal Masuk')
@@ -83,13 +102,24 @@ class AyamRelationManager extends RelationManager
                     ->sortable(),
 
                 TextColumn::make('jumlah_awal')
-                    ->label('Jumlah Ayam')
+                    ->label('Jumlah Ayam Awal')
                     ->numeric()
+                    ->sortable(),
+
+                TextColumn::make('jumlah_saat_ini')
+                    ->label('Jumlah Ayam Saat Ini')
+                    ->numeric()
+                    ->badge()
+                    ->color(fn($state): string => match (true) {
+                        $state < 0 => 'danger',
+                        (int) $state === 0 => 'warning',
+                        default => 'success',
+                    })
                     ->sortable(),
 
                 TextColumn::make('usia')
                     ->label('Usia Masuk')
-                    ->state(fn($record) => round($record->usia / 7, 2))
+                    ->state(fn($record) => round(($record->usia ?? 0) / 7, 2) . ' minggu')
                     ->suffix(' minggu')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -116,9 +146,20 @@ class AyamRelationManager extends RelationManager
             ->headerActions([
                 CreateAction::make()
                     ->mutateFormDataUsing(function (array $data): array {
-                        $data['usia'] = isset($data['usia_minggu'])
+                        $inputHariCurrent = isset($data['usia_minggu'])
                             ? (int) round((float) $data['usia_minggu'] * 7)
                             : 7;
+                        $tglMasuk = isset($data['tanggal_masuk'])
+                            ? Carbon::parse($data['tanggal_masuk'])->startOfDay()
+                            : now()->startOfDay();
+                        $selisihHari = (int) $tglMasuk->diffInDays(now()->startOfDay());
+                        $data['usia'] = max(0, $inputHariCurrent - $selisihHari);
+                        if (empty($data['nama_batch']) && !empty($data['id_sub_anak_akun'])) {
+                            $subAkun = SubAnakAkun::find($data['id_sub_anak_akun']);
+                            if ($subAkun) {
+                                $data['nama_batch'] = $subAkun->nama_sub_anak_akun;
+                            }
+                        }
                         return $data;
                     }),
             ])
@@ -126,10 +167,21 @@ class AyamRelationManager extends RelationManager
                 EditAction::make()
                     ->modalHeading('Ubah Data Ayam')
                     ->mutateFormDataUsing(function (array $data, $record): array {
-                        $inputHari = (int) round((float) $data['usia_minggu'] * 7);
-                        $selisih = (int) $record->tanggal_masuk->startOfDay()->diffInDays(now()->startOfDay());
+                        if (isset($data['usia_minggu'])) {
+                            $inputHariCurrent = (int) round((float) $data['usia_minggu'] * 7);
+                            $tglMasuk = isset($data['tanggal_masuk'])
+                                ? Carbon::parse($data['tanggal_masuk'])->startOfDay()
+                                : $record->tanggal_masuk->startOfDay();
 
-                        $data['usia'] = max(0, $inputHari - $selisih);
+                            $selisihHari = (int) $tglMasuk->diffInDays(now()->startOfDay());
+                            $data['usia'] = max(0, $inputHariCurrent - $selisihHari);
+                        }
+                        if (empty($data['nama_batch']) && !empty($data['id_sub_anak_akun'])) {
+                            $subAkun = SubAnakAkun::find($data['id_sub_anak_akun']);
+                            if ($subAkun) {
+                                $data['nama_batch'] = $subAkun->nama_sub_anak_akun;
+                            }
+                        }
                         return $data;
                     }),
                 DeleteAction::make(),
