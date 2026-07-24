@@ -78,25 +78,23 @@ class PosPenjualan extends Page
 
     public function generateNoNota()
     {
-        if (!$this->toko_id) {
-            return 'NOTA-000001';
-        }
-
-        $toko = IdentitasToko::find($this->toko_id);
-        $prefix = ($toko?->kode_toko ?? 'NOTA') . '-';
+        $prefix = 'INV-' . now()->format('Ymd');
 
         $last = Penjualan::where('no_nota', 'LIKE', $prefix . '%')
             ->orderBy('id', 'DESC')
             ->first();
 
         if (!$last) {
-            return $prefix . '000001';
+            return $prefix . now()->format('His');
         }
 
-        $lastNumber = (int) str_replace($prefix, '', $last->no_nota);
-        $newNumber = $lastNumber + 1;
+        $suffix = substr($last->no_nota, strlen($prefix));
+        if (!ctype_digit($suffix)) {
+            return $prefix . now()->format('His');
+        }
 
-        return $prefix . str_pad($newNumber, 6, '0', STR_PAD_LEFT);
+        $newNumber = (int) $suffix + 1;
+        return $prefix . str_pad($newNumber, strlen($suffix), '0', STR_PAD_LEFT);
     }
 
     public function updatedTokoId()
