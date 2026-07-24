@@ -188,117 +188,20 @@ class ProduksiPakanLaporan extends Page
                 });
             })->get();
 
-        // ══════════════════════════════════════════════════════════
-        // LANGKAH 1: Cari produksi terakhir sebelum selectedDate
-        // ══════════════════════════════════════════════════════════
-        $produksiKemarin = ProduksiPakan::with(['pakanMentahs', 'pakanCampurans'])
-            ->whereDate('tanggal_produksi', '<', $this->selectedDate)
-            ->orderByDesc('tanggal_produksi')
-            ->first();
-
-        // ══════════════════════════════════════════════════════════
-        // LANGKAH 2: Cari opname terakhir yang DISETUJUI
-        //            sebelum atau sama dengan selectedDate
-        // ══════════════════════════════════════════════════════════
-        $opnameTerakhir = \App\Models\StockOpname::with('details')
-            ->where('status', 'disetujui')
-            ->whereDate('tanggal_opname', '<=', $this->selectedDate)
-            ->whereDoesntHave('jurnalPembantuHeaders', function ($q) {
-                $q->where('status', '!=', JurnalPembantuHeader::STATUS_DIPOSTING);
-            })
-            ->orderByDesc('tanggal_opname')
-            ->orderByDesc('approved_at')
-            ->first();
-
-        // ══════════════════════════════════════════════════════════
-        // LANGKAH 3: Tentukan mana yang lebih baru — opname atau produksi
-        //            Yang lebih baru = referensi stok awal
-        // ══════════════════════════════════════════════════════════
-        $tanggalProduksiTerakhir = $produksiKemarin?->tanggal_produksi
-            ? \Carbon\Carbon::parse($produksiKemarin->tanggal_produksi)
-            : null;
-
-        $tanggalOpnameTerakhir = $opnameTerakhir
-            ? \App\Models\JurnalPembantuHeader::where('no_dokumen', $opnameTerakhir->no_opname)
-            ->where('modul_asal', 'stock_opname')
-            ->max('tgl_posting')
-            : null;
-
-        $tanggalOpnameTerakhir = $tanggalOpnameTerakhir ? \Carbon\Carbon::parse($tanggalOpnameTerakhir) : null;
-        // Tentukan sumber referensi mana yang dipakai
-        // null = tidak ada referensi sama sekali → baca semua jurnal
-        $gunakanOpnameSebagaiBase = false;
-        $tanggalReferensi         = null;
-        $stokReferensi            = []; // [barang_id => qty]
-
-        if ($tanggalOpnameTerakhir && $tanggalProduksiTerakhir) {
-            // Keduanya ada — bandingkan mana yang lebih baru
-            if ($tanggalOpnameTerakhir->gte($tanggalProduksiTerakhir)) {
-                // Opname lebih baru atau sama → pakai opname
-                $gunakanOpnameSebagaiBase = true;
-                $tanggalReferensi         = $tanggalOpnameTerakhir;
-            } else {
-                // Produksi lebih baru → pakai stok_akhir produksi
-                $gunakanOpnameSebagaiBase = false;
-                $tanggalReferensi         = $tanggalProduksiTerakhir;
-            }
-        } elseif ($tanggalOpnameTerakhir) {
-            // Hanya ada opname, belum pernah ada produksi
-            $gunakanOpnameSebagaiBase = true;
-            $tanggalReferensi         = $tanggalOpnameTerakhir;
-        } elseif ($tanggalProduksiTerakhir) {
-            // Hanya ada produksi, belum pernah ada opname
-            $gunakanOpnameSebagaiBase = false;
-            $tanggalReferensi         = $tanggalProduksiTerakhir;
-        }
-        // else: keduanya null → tanggalReferensi tetap null → baca semua jurnal
-
-        // ══════════════════════════════════════════════════════════
-        // LANGKAH 4: Bangun map stok referensi per barang_id
-        // ══════════════════════════════════════════════════════════
-        if ($gunakanOpnameSebagaiBase && $opnameTerakhir) {
-            // Ambil stok_aktual dari detail opname sebagai base
-            foreach ($opnameTerakhir->details as $detail) {
-                $stokReferensi[$detail->barang_id] = (float) ($detail->stok_aktual ?? 0);
-            }
-        } elseif (!$gunakanOpnameSebagaiBase && $produksiKemarin) {
-            // Ambil stok_akhir dari produksi kemarin sebagai base
-            foreach ($produksiKemarin->pakanMentahs as $item) {
-                $stokReferensi[$item->id_barang] = (float) $item->stok_akhir;
-            }
-            foreach ($produksiKemarin->pakanCampurans as $item) {
-                $stokReferensi[$item->id_barang] = (float) $item->stok_akhir;
-            }
-        }
-        // else: stokReferensi kosong → stok awal murni dari JurnalUmum
-
-        // ══════════════════════════════════════════════════════════
-        // LANGKAH 5: Hitung delta JurnalUmum SETELAH tanggal referensi
-        //            s/d selectedDate
-        // ══════════════════════════════════════════════════════════
         $kodeAkuns = $semuaBarang
             ->map(fn($b) => $b->subAnakAkun?->kode_sub_anak_akun)
             ->filter()->unique()->toArray();
 
-        $stokJurnalDelta = [];
+        $stokJurnal = [];
 
         if (!empty($kodeAkuns)) {
-            $queryJurnal = \App\Models\JurnalUmum::select(
+            $transaksisGrouped = \App\Models\JurnalUmum::select(
                 'no_akun',
                 'map',
                 DB::raw('SUM(COALESCE(banyak, 0)) as total_qty')
-            )->whereIn('no_akun', $kodeAkuns);
-
-            if ($tanggalReferensi) {
-                // Ada referensi → hanya ambil delta SETELAH tanggal referensi
-                $queryJurnal->whereDate('tgl', '>', $tanggalReferensi->format('Y-m-d'))
-                    ->whereDate('tgl', '<=', $this->selectedDate);
-            } else {
-                // Tidak ada referensi sama sekali → ambil semua s/d hari ini
-                $queryJurnal->whereDate('tgl', '<=', $this->selectedDate);
-            }
-
-            $transaksisGrouped = $queryJurnal
+            )
+                ->whereIn('no_akun', $kodeAkuns)
+                ->whereDate('tgl', '<=', $this->selectedDate)
                 ->groupBy('no_akun', 'map')
                 ->get()
                 ->groupBy('no_akun');
@@ -309,20 +212,15 @@ class ProduksiPakanLaporan extends Page
 
                 if ($kodeAkun && isset($transaksisGrouped[$kodeAkun])) {
                     foreach ($transaksisGrouped[$kodeAkun] as $trx) {
-                        $isDebit  = in_array(strtolower($trx->map), ['d', 'debit']);
-                        $totalQty += $isDebit
-                            ? (float) $trx->total_qty
-                            : -(float) $trx->total_qty;
+                        $isDebit = in_array(strtolower($trx->map), ['d', 'debit', 'debet']);
+                        $totalQty += $isDebit ? (float) $trx->total_qty : -(float) $trx->total_qty;
                     }
                 }
 
-                $stokJurnalDelta[$barang->id] = $totalQty;
+                $stokJurnal[$barang->id] = $totalQty;
             }
         }
 
-        // ══════════════════════════════════════════════════════════
-        // LANGKAH 6: Bangun mentahState & campuranState
-        // ══════════════════════════════════════════════════════════
         $this->mentahState   = [];
         $this->campuranState = [];
 
@@ -332,9 +230,7 @@ class ProduksiPakanLaporan extends Page
                 || str_contains($namaUpper, 'PULET')
                 || str_contains($namaUpper, 'LAYER');
 
-            $baseStok    = $stokReferensi[$b->id] ?? 0;
-            $deltaJurnal = $stokJurnalDelta[$b->id] ?? 0;
-            $stokAwal    = max(0, $baseStok + $deltaJurnal);
+            $stokAwal = max(0, $stokJurnal[$b->id] ?? 0);
 
             $base = [
                 'id'          => null,
@@ -350,14 +246,9 @@ class ProduksiPakanLaporan extends Page
             ];
 
             if ($isCampuran) {
-                $this->campuranState[] = array_merge($base, [
-                    'masuk'  => 0.0,
-                    'satuan' => $b->satuan?->nama_satuan ?? 'kg',
-                ]);
+                $this->campuranState[] = array_merge($base, ['masuk' => 0.0, 'satuan' => $b->satuan?->nama_satuan ?? 'kg']);
             } else {
-                $this->mentahState[] = array_merge($base, [
-                    'masuk'        => 0.0,
-                ]);
+                $this->mentahState[] = array_merge($base, ['masuk' => 0.0]);
             }
         }
 
