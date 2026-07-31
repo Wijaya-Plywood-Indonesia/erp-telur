@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Exports\ProduksiPakanExport;
 use App\Models\Barang;
 use App\Models\JurnalPembantuHeader;
 use App\Models\ProduksiPakan;
@@ -13,7 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
+use Filament\Actions\Action;
 use Illuminate\Support\Facades\Log;
+use Maatwebsite\Excel\Facades\Excel;
 use UnitEnum;
 
 class ProduksiPakanLaporan extends Page
@@ -49,6 +52,27 @@ class ProduksiPakanLaporan extends Page
     /* ═══════════════════════════════════════════════════════════════════════
     |  SISTEM LOGGING & SESSION
     ═══════════════════════════════════════════════════════════════════════ */
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('export')
+                ->label('Export Excel')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('success')
+                ->action(fn() => $this->exportExcel()),
+        ];
+    }
+
+    public function exportExcel()
+    {
+        $filename = 'laporan-produksi-pakan-' . $this->selectedDate . '.xlsx';
+
+        return Excel::download(
+            new ProduksiPakanExport($this->selectedDate, $this->mentahState, $this->campuranState),
+            $filename
+        );
+    }
 
     private function sessionKey(): string
     {

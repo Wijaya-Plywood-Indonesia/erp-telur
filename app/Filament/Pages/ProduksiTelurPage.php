@@ -2,15 +2,18 @@
 
 namespace App\Filament\Pages;
 
+use App\Exports\ProduksiTelurExport;
 use App\Models\DetailProduksiTelur;
 use App\Models\Kandang;
 use App\Models\ProduksiPakanCampuran;
 use App\Models\ProduksiTelur;
+use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Maatwebsite\Excel\Facades\Excel;
 use UnitEnum;
 
 class ProduksiTelurPage extends Page
@@ -23,6 +26,43 @@ class ProduksiTelurPage extends Page
     public function getView(): string
     {
         return 'filament.pages.produksi-telur-page';
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('exportExcel')
+                ->label('Download Excel')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('success')
+                ->visible(fn() => Auth::user()->hasAnyRole(['admin', 'super_admin']))
+                ->authorize(fn() => Auth::user()->hasAnyRole(['admin', 'super_admin']))
+                ->action(function () {
+                    return Excel::download(
+                        new ProduksiTelurExport(
+                            tanggal: $this->tanggal,
+                            kandangs: $this->kandangs,
+                            gridData: $this->gridData,
+                            kandangPakan: $this->kandangPakan,
+                            allPakan: $this->allPakan,
+                            kandangTotals: $this->kandangTotals,
+                            grandTotal: $this->grandTotal,
+                            korektor: [
+                                'peti'   => $this->korektorPeti,
+                                'kiloan' => $this->korektorKiloan,
+                                'sisa'   => $this->korektorSisa,
+                                'bentes' => $this->korektorBentes,
+                                'total'  => $this->korektorTotalKg,
+                                'dariKandang'  => $this->grandTotal['kilo'],   // ✅ baru
+                                'selisih'      => $this->selisihKg,            // ✅ baru
+                                'statusLabel'  => $this->statusKorektor['label'] ?? '-', // ✅ baru
+                                'statusColor'  => $this->statusKorektor['color'] ?? 'success', // ✅ baru
+                            ],
+                        ),
+                        'Laporan-Produksi-Telur-' . $this->tanggal . '.xlsx'
+                    );
+                }),
+        ];
     }
 
     // ─── State Utama (Matriks Excel) ─────────────────────────

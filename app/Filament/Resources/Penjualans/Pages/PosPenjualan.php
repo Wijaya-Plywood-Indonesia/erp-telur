@@ -70,9 +70,9 @@ class PosPenjualan extends Page
             $this->toko_id = $tokoUser->id_toko;
             $this->kodeToko = $tokoUser->toko->kode_toko;
             $this->namaToko = $tokoUser->toko->nama_toko;
-            $this->no_nota = $this->generateNoNota();
         }
 
+        $this->no_nota = $this->generateNoNota();
         $this->tanggal = now()->format('Y-m-d\TH:i');
     }
 
