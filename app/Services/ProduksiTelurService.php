@@ -118,9 +118,9 @@ class ProduksiTelurService
     private function prepareTelurItems(ProduksiTelur $produksi): array
     {
         $map = [
-            '1411-00' => ['qty' => (float) ($produksi->korektor_peti ?? 0), 'fallback' => 'telur petian Ruko', 'satuan' => 'PETI'],
-            '1412-00' => ['qty' => (float) (($produksi->korektor_kiloan ?? 0) + ($produksi->korektor_sisa ?? 0)), 'fallback' => 'telur kiloan Ruko', 'satuan' => 'KG'],
-            '1413-00' => ['qty' => (float) ($produksi->korektor_bentes ?? 0), 'fallback' => 'telur bentes Ruko', 'satuan' => 'KG'],
+            '1400-11' => ['qty' => (float) ($produksi->korektor_peti ?? 0), 'fallback' => 'telur petian Ruko', 'satuan' => 'PETI'],
+            '1400-12' => ['qty' => (float) (($produksi->korektor_kiloan ?? 0) + ($produksi->korektor_sisa ?? 0)), 'fallback' => 'telur kiloan Ruko', 'satuan' => 'KG'],
+            '1400-13' => ['qty' => (float) ($produksi->korektor_bentes ?? 0), 'fallback' => 'telur bentes Ruko', 'satuan' => 'KG'],
         ];
 
         $items = [];
