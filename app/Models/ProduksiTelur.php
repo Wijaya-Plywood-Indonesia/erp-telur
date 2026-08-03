@@ -19,6 +19,7 @@ class ProduksiTelur extends Model
         'validated_by',
         'validated_at',
         'keterangan',
+        'is_locked',
 
         // ===========
         'korektor_peti',
@@ -35,6 +36,7 @@ class ProduksiTelur extends Model
         'korektor_kiloan'  => 'decimal:2',
         'korektor_sisa'    => 'decimal:2',
         'korektor_bentes'  => 'decimal:2',
+        'is_locked'    => 'boolean',
     ];
 
     private const KG_PER_PETI = 10.0;
@@ -160,5 +162,10 @@ class ProduksiTelur extends Model
                 }
             }
         });
+    }
+
+    public function korektor()
+    {
+        return $this->hasOne(ProduksiTelurKorektor::class, 'id_produksi_telur');
     }
 }
