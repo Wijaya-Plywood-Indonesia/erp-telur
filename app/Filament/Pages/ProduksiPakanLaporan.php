@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Illuminate\Support\Facades\Log;
 use Maatwebsite\Excel\Facades\Excel;
 use UnitEnum;
@@ -41,6 +42,7 @@ class ProduksiPakanLaporan extends Page
 
     /* ─── Status ────────────────────────────────────────────────────────── */
     public bool $isSuperAdmin       = false;
+    public bool $isAdmin      = false;
     public bool $isCreator          = false;
     public bool $isDraftSaved       = false;
     public bool $canEdit            = true;
@@ -48,6 +50,7 @@ class ProduksiPakanLaporan extends Page
     public bool $showValidateButton = false;
 
     protected bool $isRecalculating = false;
+    public bool $isDraftLocked = false;
 
     /* ═══════════════════════════════════════════════════════════════════════
     |  SISTEM LOGGING & SESSION
@@ -60,7 +63,24 @@ class ProduksiPakanLaporan extends Page
                 ->label('Export Excel')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('success')
+                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
                 ->action(fn() => $this->exportExcel()),
+
+            Action::make('bukaKunci')
+                ->label('Buka Data')
+                ->icon('heroicon-o-lock-open')
+                ->color('warning')
+                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                ->modalDescription('Data ini akan bisa diedit kembali oleh creator. Jika sudah tervalidasi, validasi akan dibatalkan.')
+                ->form([
+                    DatePicker::make('tanggal')
+                        ->label('Tanggal Data')
+                        ->default($this->selectedDate)
+                        ->native(false)
+                        ->closeOnDateSelection()
+                        ->required(),
+                ])
+                ->action(fn(array $data) => $this->bukaKunci($data['tanggal'])),
         ];
     }
 
@@ -94,6 +114,7 @@ class ProduksiPakanLaporan extends Page
     public function mount(): void
     {
         $this->isSuperAdmin = Auth::user()->hasRole('super_admin');
+        $this->isAdmin       = Auth::user()->hasRole('admin');
         $this->selectedDate = now()->format('Y-m-d');
         $this->loadDataByDate();
     }
@@ -138,6 +159,7 @@ class ProduksiPakanLaporan extends Page
             $this->logInfo('DB Terisi: Memulihkan data dari database');
             $this->isDraftSaved = true;
             $this->isLocked     = !empty($this->currentRecord->validated_by);
+            $this->isDraftLocked = (bool) $this->currentRecord->is_locked;
             $this->isCreator    = ($this->currentRecord->created_by === Auth::user()->name);
             $this->keterangan   = $this->currentRecord->keterangan ?? '';
 
@@ -464,9 +486,10 @@ class ProduksiPakanLaporan extends Page
                         'tanggal_produksi' => $this->selectedDate,
                         'created_by'       => Auth::user()->name,
                         'keterangan'       => $this->keterangan,
+                        'is_locked'        => true,
                     ]);
                 } else {
-                    $this->currentRecord->update(['keterangan' => $this->keterangan]);
+                    $this->currentRecord->update(['keterangan' => $this->keterangan, 'is_locked'  => true,]);
                 }
                 $semuaInputMentah = $this->mentahState;
 
@@ -522,6 +545,7 @@ class ProduksiPakanLaporan extends Page
     public function validateData(): void
     {
         if (!$this->showValidateButton) return;
+        if (!$this->isSuperAdmin && !$this->isAdmin) return;
 
         // ── Tolak hanya jika TIDAK ADA SATUPUN nilai > 0 ──
         $adaNilaiMentah = collect($this->mentahState)->contains(
@@ -598,16 +622,16 @@ class ProduksiPakanLaporan extends Page
         //   - Non-creator (validator) → bisa edit & bisa klik tombol validasi.
         //     Validator perlu bisa koreksi jika ada kesalahan sebelum mengunci.
         if ($this->isDraftSaved) {
-            if ($this->isCreator) {
-                // Creator hanya bisa lihat, tidak bisa ubah apapun
+            if ($this->isDraftLocked) {
                 $this->canEdit            = false;
                 $this->showSaveButton     = false;
-                $this->showValidateButton = false;
+                $this->showValidateButton = (! $this->isCreator) && $this->isAdmin; // creator tetap tidak boleh validasi datanya sendiri
             } else {
-                // Validator bisa edit dan kunci data
-                $this->canEdit            = true;
-                $this->showSaveButton     = true;
-                $this->showValidateButton = true;
+                // Kunci sudah dibuka (lewat tombol "Buka Data") —
+                // sekarang boleh diedit ulang & disimpan lagi.
+                $this->canEdit            = $this->isCreator;
+                $this->showSaveButton     = $this->isCreator;
+                $this->showValidateButton = false; // harus disimpan dulu (otomatis terkunci lagi) sebelum bisa divalidasi
             }
             return;
         }
@@ -753,5 +777,66 @@ class ProduksiPakanLaporan extends Page
         if (str_contains($nama, 'LAYER 1') || str_contains($nama, 'L1'))   return 2;
         if (str_contains($nama, 'LAYER 2') || str_contains($nama, 'L2'))   return 3;
         return 99;
+    }
+
+
+    public function bukaKunci(string $tanggal): void
+    {
+        $record = ProduksiPakan::whereDate('tanggal_produksi', $tanggal)->first();
+
+        if (! $record) {
+            Notification::make()
+                ->title('Data tidak ditemukan')
+                ->body("Tidak ada data produksi pakan untuk tanggal {$tanggal}.")
+                ->danger()->send();
+            return;
+        }
+
+        $sudahValidasi = ! empty($record->validated_by);
+        $adalahCreator = ($record->created_by === Auth::user()->name);
+
+        // Sudah tervalidasi → cuma Super Admin yang boleh membatalkan validasi.
+        if ($sudahValidasi && ! $this->isSuperAdmin) {
+            Notification::make()
+                ->title('Tidak diizinkan')
+                ->body('Data sudah divalidasi. Hanya Super Admin yang bisa membukanya.')
+                ->danger()->send();
+            return;
+        }
+
+        // Masih draft terkunci (belum tervalidasi) → boleh dibuka Super Admin atau Admin.
+        if (! $sudahValidasi && ! $this->isSuperAdmin && ! $this->isAdmin) {
+            Notification::make()
+                ->title('Tidak diizinkan')
+                ->body('Hanya Admin atau Super Admin yang bisa membuka kunci data ini.')
+                ->danger()->send();
+            return;
+        }
+
+        // Creator tidak boleh membuka kuncinya sendiri (kecuali dia juga Super Admin).
+        if ($adalahCreator && ! $this->isSuperAdmin) {
+            Notification::make()
+                ->title('Tidak diizinkan')
+                ->body('Anda adalah penginput data ini, tidak bisa membuka kunci milik sendiri.')
+                ->danger()->send();
+            return;
+        }
+
+        DB::transaction(function () use ($record) {
+            $record->update([
+                'validated_by' => null,
+                'validated_at' => null,
+                'is_locked'    => false,
+            ]);
+        });
+
+        Notification::make()
+            ->title('Kunci berhasil dibuka')
+            ->body("Data produksi pakan untuk tanggal {$tanggal} kini bisa diedit kembali oleh creator.")
+            ->warning()->send();
+
+        if ($tanggal === $this->selectedDate) {
+            $this->loadDataByDate();
+        }
     }
 }

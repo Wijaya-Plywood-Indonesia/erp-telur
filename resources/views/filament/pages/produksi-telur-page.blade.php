@@ -145,16 +145,6 @@
                     Simpan Produksi
                 </button>
                 @endif
-
-                @if($showValidateButton)
-                <button
-                    type="button"
-                    wire:click="validateProduksi"
-                    wire:confirm="Data yang sudah divalidasi tidak dapat diubah kecuali oleh Super Admin. Lanjutkan?"
-                    class="px-5 py-1.5 text-xs font-bold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition rounded-none shadow-sm">
-                    Validasi
-                </button>
-                @endif
             </div>
 
             <div class="overflow-x-auto w-full border border-gray-300 dark:border-gray-800 bg-white dark:bg-zinc-950 rounded-none shadow-md">

@@ -73,7 +73,7 @@ class ProduksiTelurPage extends Page
                 ->label('Buka Data')
                 ->icon('heroicon-o-lock-open')
                 ->color('warning')
-                ->visible(fn() => $this->isSuperAdmin)
+                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
                 ->modalHeading('Buka Data Produksi Telur')
                 ->modalDescription('Validasi akan dibatalkan dan bagian yang dipilih bisa diedit ulang.')
                 ->form([
@@ -97,6 +97,17 @@ class ProduksiTelurPage extends Page
                 ->action(function (array $data) {
                     $this->bukaKunci($data['tanggal'], $data['scope']);
                 }),
+
+            Action::make('validateProduksiGlobal')
+                ->label('Validasi Data')
+                ->icon('heroicon-o-check-badge')
+                ->color('success')
+                ->visible(fn() => $this->showValidateButton)
+                ->requiresConfirmation()
+                ->modalHeading('Validasi Data Produksi Telur')
+                ->modalDescription('Data yang sudah divalidasi tidak dapat diubah kecuali oleh Super Admin. Pastikan Produksi Telur dan Analisa Korektor sudah benar.')
+                ->modalSubmitActionLabel('Ya, Validasi')
+                ->action(fn() => $this->validateProduksi()),
         ];
     }
 
@@ -616,6 +627,7 @@ class ProduksiTelurPage extends Page
     protected function computePermissions($produksi = null, $korektor = null): void
     {
         $this->isSuperAdmin = Auth::user()->hasRole('super_admin');
+        $this->isAdmin      = Auth::user()->hasRole('admin');
         $this->namaUserLogin = Auth::user()->name;
 
         $this->isPegawaiKandang = Auth::user()->hasRole('Pegawai Kandang');
@@ -673,6 +685,17 @@ class ProduksiTelurPage extends Page
             return;
         }
 
+        if ($this->isAdmin) {
+            $this->canEdit = false;
+            $this->canEditKorektor = false;
+            $this->isEditable = false;
+
+            $this->showValidateButton = $this->isProduksiLocked
+                && $this->isKorektorLocked
+                && ! $produksi->is_validated;
+            return;
+        }
+
         // ── 2. Sudah tervalidasi → terkunci total untuk user biasa ──
         if ($produksi->is_validated) {
             $this->canEdit = false;
@@ -689,9 +712,11 @@ class ProduksiTelurPage extends Page
 
         // Validasi hanya untuk yang BUKAN pencatat, dan grid produksi harus sudah disimpan,
         // dan bukan pegawai_ruko (dia memang gak boleh lihat/isi tab produksi sama sekali).
+        $isAdmin = Auth::user()->hasAnyRole(['admin', 'super_admin']);
+
         $this->showValidateButton = $this->isProduksiLocked
-            && ! $this->isCreator
-            && $this->canViewProduksiTab;
+            && $this->isKorektorLocked
+            && $isAdmin;
     }
 
     public function validateProduksi(): void
@@ -762,7 +787,7 @@ class ProduksiTelurPage extends Page
      */
     public function bukaKunci(string $tanggal, string $scope): void
     {
-        if (! $this->isSuperAdmin) {
+        if (! $this->isSuperAdmin && ! $this->isAdmin) {
             Notification::make()->title('Tidak diizinkan.')->danger()->send();
             return;
         }

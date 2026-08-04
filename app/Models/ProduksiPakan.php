@@ -10,7 +10,8 @@ class ProduksiPakan extends Model
         'tanggal_produksi',
         'keterangan',
         'created_by',
-        'validated_by'
+        'validated_by',
+        'is_locked',
     ];
 
     protected $casts = [
