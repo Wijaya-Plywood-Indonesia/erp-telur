@@ -117,10 +117,24 @@ class ProduksiTelurService
      */
     private function prepareTelurItems(ProduksiTelur $produksi): array
     {
+        $korektor = \App\Models\ProduksiTelurKorektor::where('id_produksi_telur', $produksi->id)->first();
+
         $map = [
-            '1400-11' => ['qty' => (float) ($produksi->korektor_peti ?? 0), 'fallback' => 'telur petian Ruko', 'satuan' => 'PETI'],
-            '1400-12' => ['qty' => (float) (($produksi->korektor_kiloan ?? 0) + ($produksi->korektor_sisa ?? 0)), 'fallback' => 'telur kiloan Ruko', 'satuan' => 'KG'],
-            '1400-13' => ['qty' => (float) ($produksi->korektor_bentes ?? 0), 'fallback' => 'telur bentes Ruko', 'satuan' => 'KG'],
+            '1400-11' => [
+                'qty' => (float) ($korektor?->korektor_peti ?? 0),
+                'fallback' => 'telur petian Ruko',
+                'satuan' => 'PETI',
+            ],
+            '1400-12' => [
+                'qty' => (float) (($korektor?->korektor_kiloan ?? 0) + ($korektor?->korektor_sisa ?? 0)),
+                'fallback' => 'telur kiloan Ruko',
+                'satuan' => 'KG',
+            ],
+            '1400-13' => [
+                'qty' => (float) ($korektor?->korektor_bentes ?? 0),
+                'fallback' => 'telur bentes Ruko',
+                'satuan' => 'KG',
+            ],
         ];
 
         $items = [];

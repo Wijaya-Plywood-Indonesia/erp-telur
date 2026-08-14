@@ -98,6 +98,27 @@ class ProduksiTelurPage extends Page
                     $this->bukaKunci($data['tanggal'], $data['scope']);
                 }),
 
+            Action::make('batalValidasi')
+                ->label('Batal Validasi')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color('danger')
+                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                ->requiresConfirmation()
+                ->modalHeading('Batalkan Validasi Produksi Telur')
+                ->modalDescription('Status validasi akan direset ke belum tervalidasi. Data produksi & korektor TETAP terkunci (tidak bisa diedit) — hanya status validasinya yang dibatalkan agar bisa divalidasi ulang (misalnya untuk regenerasi jurnal pembantu).')
+                ->modalSubmitActionLabel('Ya, Batalkan Validasi')
+                ->form([
+                    DatePicker::make('tanggal')
+                        ->label('Tanggal Data')
+                        ->default($this->tanggal)
+                        ->native(false)
+                        ->closeOnDateSelection()
+                        ->required(),
+                ])
+                ->action(function (array $data) {
+                    $this->batalkanValidasi($data['tanggal']);
+                }),
+
             Action::make('validateProduksiGlobal')
                 ->label('Validasi Data')
                 ->icon('heroicon-o-check-badge')
@@ -167,6 +188,7 @@ class ProduksiTelurPage extends Page
     // ─── Status & Izin Pengeditan ─────────────────────────────
 
     public bool $isSuperAdmin = false;
+    public bool $isAdmin = false;
     public bool $isCreator = false;
     public bool $isDraftSaved = false;
     public bool $isLocked = false;          // true jika sudah TERVALIDASI (kunci total)
@@ -281,7 +303,7 @@ class ProduksiTelurPage extends Page
             foreach ($this->gridData as $idKandang => $rows) {
                 $idPakanSelected = $this->kandangPakan[$idKandang] ?: null;
 
-                foreach ($rows as $row) {
+                foreach ($rows as $rowIdx => $row) {
                     $butir = (int) ($row['butir'] ?? 0);
                     $kilo  = (float) ($row['kilo'] ?? 0);
                     $tray  = (float) ($row['tray'] ?? 0);
@@ -292,6 +314,7 @@ class ProduksiTelurPage extends Page
                         'id_produksi_telur'          => $produksi->id,
                         'id_kandang'                 => $idKandang,
                         'id_produksi_pakan_campuran' => $idPakanSelected,
+                        'row_index'                  => $rowIdx, // ✅ posisi baris asli disimpan
                         'jumlah_telur_butir'         => $butir,
                         'jumlah_telur_kilo'          => $kilo,
                         'jumlah_telur_tray'          => $tray,
@@ -440,11 +463,11 @@ class ProduksiTelurPage extends Page
         // ✅ Ambil korektor dari tabel TERPISAH
         $korektor = ProduksiTelurKorektor::where('id_produksi_telur', $produksi->id)->first();
 
-        $this->korektorPeti     = $korektor->korektor_peti    ?: null;
-        $this->korektorKiloan   = $korektor->korektor_kiloan  ?: null;
-        $this->korektorSisa     = $korektor->korektor_sisa    ?: null;
-        $this->korektorBentes   = $korektor->korektor_bentes  ?: null;
-        $this->korektorCatatan  = $korektor->korektor_catatan ?: null;
+        $this->korektorPeti     = $korektor?->korektor_peti    ?? null;
+        $this->korektorKiloan   = $korektor?->korektor_kiloan  ?? null;
+        $this->korektorSisa     = $korektor?->korektor_sisa    ?? null;
+        $this->korektorBentes   = $korektor?->korektor_bentes  ?? null;
+        $this->korektorCatatan  = $korektor?->korektor_catatan ?? null;
 
         $this->loadKorektorAuditInfo($korektor);
 
@@ -458,9 +481,10 @@ class ProduksiTelurPage extends Page
             $this->gridData[$idKandang] = [];
             $this->kandangPakan[$idKandang] = null;
 
-            $kandangDetails = $details->where('id_kandang', $idKandang)->values();
+            // ✅ key by row_index, bukan values() yang memadatkan urutan
+            $kandangDetails = $details->where('id_kandang', $idKandang)->keyBy('row_index');
 
-            if ($kandangDetails->count() > 0) {
+            if ($kandangDetails->isNotEmpty()) {
                 $this->kandangPakan[$idKandang] = $kandangDetails->first()->id_produksi_pakan_campuran;
             }
 
@@ -471,17 +495,17 @@ class ProduksiTelurPage extends Page
                     $trayRaw  = (float) $kandangDetails[$i]->jumlah_telur_tray;
 
                     $this->gridData[$idKandang][$i] = [
-                        'id' => $kandangDetails[$i]->id,
+                        'id'    => $kandangDetails[$i]->id,
                         'butir' => $butirRaw ?: null,
                         'kilo'  => $kiloRaw  ?: null,
                         'tray'  => $trayRaw  ?: null,
                     ];
                 } else {
                     $this->gridData[$idKandang][$i] = [
-                        'id' => null,
+                        'id'    => null,
                         'butir' => null,
-                        'kilo' => null,
-                        'tray' => null,
+                        'kilo'  => null,
+                        'tray'  => null,
                     ];
                 }
             }
@@ -828,6 +852,60 @@ class ProduksiTelurPage extends Page
         Notification::make()
             ->title('Kunci berhasil dibuka')
             ->body("{$label} untuk tanggal {$tanggal} kini bisa diedit kembali.")
+            ->warning()
+            ->send();
+
+        if ($tanggal === $this->tanggal) {
+            $this->is_validated = false;
+            $this->loadExistingDataByTanggal();
+        }
+    }
+
+    /**
+     * ✅ BARU — Membatalkan status validasi SAJA (tanpa membuka kunci edit produksi/korektor),
+     * supaya data bisa divalidasi ulang (misalnya untuk regenerasi jurnal pembantu
+     * setelah perbaikan bug) tanpa membuka celah untuk mengubah isi data lagi.
+     */
+    public function batalkanValidasi(string $tanggal): void
+    {
+        if (! $this->isSuperAdmin && ! $this->isAdmin) {
+            Notification::make()->title('Tidak diizinkan.')->danger()->send();
+            return;
+        }
+
+        $produksi = ProduksiTelur::whereDate('tanggal', $tanggal)->first();
+
+        if (! $produksi) {
+            Notification::make()
+                ->title('Data tidak ditemukan')
+                ->body("Tidak ada data produksi telur untuk tanggal {$tanggal}.")
+                ->danger()
+                ->send();
+            return;
+        }
+
+        if (! $produksi->is_validated) {
+            Notification::make()
+                ->title('Belum Tervalidasi')
+                ->body("Data tanggal {$tanggal} memang belum berstatus tervalidasi.")
+                ->warning()
+                ->send();
+            return;
+        }
+
+        DB::transaction(function () use ($produksi) {
+            // Hanya reset status validasi — is_locked (produksi) dan
+            // is_locked (korektor) SENGAJA tidak diubah, agar data tetap
+            // terkunci dari pengeditan biasa.
+            $produksi->is_validated = false;
+            $produksi->validated_by = null;
+            $produksi->validated_at = null;
+            $produksi->save();
+        });
+
+        Notification::make()
+            ->title('Validasi Dibatalkan')
+            ->body("Status validasi untuk tanggal {$tanggal} telah direset. Silakan klik 'Validasi Data' lagi untuk membuat jurnal pembantu.")
             ->warning()
             ->send();
 

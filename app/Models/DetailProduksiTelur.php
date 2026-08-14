@@ -10,6 +10,7 @@ class DetailProduksiTelur extends Model
         'id_produksi_telur',
         'id_kandang',
         'id_produksi_pakan_campuran',
+        'row_index',
         'jumlah_telur_butir',
         'jumlah_telur_kilo',
         'jumlah_telur_tray',

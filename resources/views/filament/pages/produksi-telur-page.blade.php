@@ -57,6 +57,7 @@
                 </div>
             </div>
 
+            @if($canViewProduksiTab)
             <div class="grid grid-cols-3 gap-2 w-full md:max-w-xl">
                 <div class="bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-none border border-gray-200 dark:border-gray-700 flex flex-col justify-center">
                     <span class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Total Butir</span>
@@ -77,6 +78,7 @@
                     </div>
                 </div>
             </div>
+            @endif
         </div>
 
         {{-- ── TAB NAVIGATION ──────────────────────────────────── --}}
