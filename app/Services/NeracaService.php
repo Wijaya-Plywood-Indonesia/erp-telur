@@ -41,37 +41,39 @@ class NeracaService
         return $result;
     }
 
+    /**
+     * Hitung saldo akhir per akun untuk sebuah periode (harian ATAU bulanan).
+     *
+     * PENTING: Tidak ada proses tutup buku bulanan di sistem ini, jadi tabel
+     * snapshot 'buku_besar' TIDAK PERNAH terisi/update (selalu kosong).
+     * Karena itu saldo awal periode — baik untuk filter harian maupun
+     * bulanan — SELALU dihitung live dengan mengakumulasi seluruh transaksi
+     * JurnalUmum sebelum tanggal mulai periode. Pola ini identik dengan
+     * yang dipakai di BukuBesar::preloadSaldoAwal(), supaya angka di Neraca
+     * selalu konsisten dengan Buku Besar.
+     */
     private function getSaldoDinamis(Carbon $start, Carbon $end, string $jenisFilter): array
     {
-        $saldoAwal = [];
         $saldoNormalMap = DB::table('sub_anak_akuns')->pluck('saldo_normal', 'kode_sub_anak_akun')->toArray();
 
-        if ($jenisFilter === 'hari') {
-            // Akumulasi jurnal dari awal mula s.d H-1
-            $mutasiLalu = JurnalUmum::where('tgl', '<', $start->format('Y-m-d'))
-                ->selectRaw("
-                    no_akun,
-                    SUM(CASE WHEN LOWER(map) = 'd' THEN COALESCE(banyak * harga, harga, 0) ELSE 0 END) as total_debit,
-                    SUM(CASE WHEN LOWER(map) = 'k' THEN COALESCE(banyak * harga, harga, 0) ELSE 0 END) as total_kredit
-                ")
-                ->groupBy('no_akun')
-                ->get()
-                ->keyBy('no_akun');
+        // Saldo awal = akumulasi SEMUA jurnal sebelum tanggal mulai periode.
+        // Berlaku sama untuk filter 'hari' maupun 'bulan'.
+        $saldoAwal = [];
+        $mutasiLalu = JurnalUmum::where('tgl', '<', $start->format('Y-m-d'))
+            ->selectRaw("
+                no_akun,
+                SUM(CASE WHEN LOWER(map) = 'd' THEN COALESCE(banyak * harga, harga, 0) ELSE 0 END) as total_debit,
+                SUM(CASE WHEN LOWER(map) = 'k' THEN COALESCE(banyak * harga, harga, 0) ELSE 0 END) as total_kredit
+            ")
+            ->groupBy('no_akun')
+            ->get()
+            ->keyBy('no_akun');
 
-            foreach ($mutasiLalu as $kode => $m) {
-                $isKredit = in_array(strtolower($saldoNormalMap[$kode] ?? 'debit'), ['kredit', 'credit', 'k']);
-                $saldoAwal[$kode] = $isKredit 
-                    ? ($m->total_kredit - $m->total_debit) 
-                    : ($m->total_debit - $m->total_kredit);
-            }
-        } else {
-            // Jika bulanan, pakai tabel buku_besar bulan lalu agar efisien
-            $prevDate  = $start->copy()->subMonth();
-            $saldoAwal = DB::table('buku_besar')
-                ->where('tahun', $prevDate->year)
-                ->where('bulan', $prevDate->month)
-                ->pluck('saldo', 'no_akun')
-                ->toArray();
+        foreach ($mutasiLalu as $kode => $m) {
+            $isKredit = in_array(strtolower($saldoNormalMap[$kode] ?? 'debit'), ['kredit', 'credit', 'k']);
+            $saldoAwal[$kode] = $isKredit
+                ? ($m->total_kredit - $m->total_debit)
+                : ($m->total_debit - $m->total_kredit);
         }
 
         // Mutasi pada rentang tanggal/bulan terpilih
@@ -100,38 +102,32 @@ class NeracaService
         return $result;
     }
 
+    /**
+     * Versi QTY dari getSaldoDinamis(). Sama seperti di atas, saldo awal qty
+     * SELALU dihitung live dari akumulasi JurnalUmum (tabel 'buku_besar'
+     * tidak pernah diisi karena tidak ada proses tutup buku).
+     */
     private function getSaldoQtyDinamis(Carbon $start, Carbon $end, string $jenisFilter): array
     {
-        $qtyAwal = [];
         $saldoNormalMap = DB::table('sub_anak_akuns')->pluck('saldo_normal', 'kode_sub_anak_akun')->toArray();
 
-        if ($jenisFilter === 'hari') {
-            $mutasiQtyLalu = JurnalUmum::where('tgl', '<', $start->format('Y-m-d'))
-                ->whereNotNull('banyak')->where('banyak', '>', 0)
-                ->selectRaw("
-                    no_akun,
-                    SUM(CASE WHEN LOWER(map) = 'd' THEN COALESCE(banyak, 0) ELSE 0 END) as qty_debit,
-                    SUM(CASE WHEN LOWER(map) = 'k' THEN COALESCE(banyak, 0) ELSE 0 END) as qty_kredit
-                ")
-                ->groupBy('no_akun')
-                ->get()
-                ->keyBy('no_akun');
+        $qtyAwal = [];
+        $mutasiQtyLalu = JurnalUmum::where('tgl', '<', $start->format('Y-m-d'))
+            ->whereNotNull('banyak')->where('banyak', '>', 0)
+            ->selectRaw("
+                no_akun,
+                SUM(CASE WHEN LOWER(map) = 'd' THEN COALESCE(banyak, 0) ELSE 0 END) as qty_debit,
+                SUM(CASE WHEN LOWER(map) = 'k' THEN COALESCE(banyak, 0) ELSE 0 END) as qty_kredit
+            ")
+            ->groupBy('no_akun')
+            ->get()
+            ->keyBy('no_akun');
 
-            foreach ($mutasiQtyLalu as $kode => $m) {
-                $isKredit = in_array(strtolower($saldoNormalMap[$kode] ?? 'debit'), ['kredit', 'credit', 'k']);
-                $qtyAwal[$kode] = $isKredit 
-                    ? ($m->qty_kredit - $m->qty_debit) 
-                    : ($m->qty_debit - $m->qty_kredit);
-            }
-        } else {
-            $prevDate = $start->copy()->subMonth();
-            try {
-                $qtyAwal = DB::table('buku_besar')
-                    ->where('tahun', $prevDate->year)
-                    ->where('bulan', $prevDate->month)
-                    ->whereNotNull('qty')->where('qty', '>', 0)
-                    ->pluck('qty', 'no_akun')->toArray();
-            } catch (\Exception $e) { $qtyAwal = []; }
+        foreach ($mutasiQtyLalu as $kode => $m) {
+            $isKredit = in_array(strtolower($saldoNormalMap[$kode] ?? 'debit'), ['kredit', 'credit', 'k']);
+            $qtyAwal[$kode] = $isKredit
+                ? ($m->qty_kredit - $m->qty_debit)
+                : ($m->qty_debit - $m->qty_kredit);
         }
 
         $mutasiQty = JurnalUmum::whereBetween('tgl', [$start->format('Y-m-d'), $end->format('Y-m-d')])
@@ -146,7 +142,7 @@ class NeracaService
             ->keyBy('no_akun');
 
         $semuaKode = collect(array_keys($qtyAwal))->merge($mutasiQty->keys())->unique();
-        
+
         $result = [];
         foreach ($semuaKode as $kode) {
             $awal = (float) ($qtyAwal[$kode] ?? 0);
