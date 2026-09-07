@@ -214,6 +214,7 @@ class ProduksiTelurPage extends Page
     public function mount(): void
     {
         $this->isSuperAdmin = Auth::user()->hasRole('super_admin');
+        $this->isAdmin = Auth::user()->hasRole('admin');
         $this->tanggal = now()->toDateString();
         $this->tanggalSebelumnya = $this->tanggal;
         $this->loadKandangs();
@@ -303,7 +304,7 @@ class ProduksiTelurPage extends Page
             foreach ($this->gridData as $idKandang => $rows) {
                 $idPakanSelected = $this->kandangPakan[$idKandang] ?: null;
 
-                foreach ($rows as $rowIdx => $row) {
+                foreach ($rows as $row) {
                     $butir = (int) ($row['butir'] ?? 0);
                     $kilo  = (float) ($row['kilo'] ?? 0);
                     $tray  = (float) ($row['tray'] ?? 0);
@@ -314,7 +315,6 @@ class ProduksiTelurPage extends Page
                         'id_produksi_telur'          => $produksi->id,
                         'id_kandang'                 => $idKandang,
                         'id_produksi_pakan_campuran' => $idPakanSelected,
-                        'row_index'                  => $rowIdx, // ✅ posisi baris asli disimpan
                         'jumlah_telur_butir'         => $butir,
                         'jumlah_telur_kilo'          => $kilo,
                         'jumlah_telur_tray'          => $tray,
@@ -463,11 +463,11 @@ class ProduksiTelurPage extends Page
         // ✅ Ambil korektor dari tabel TERPISAH
         $korektor = ProduksiTelurKorektor::where('id_produksi_telur', $produksi->id)->first();
 
-        $this->korektorPeti     = $korektor?->korektor_peti    ?? null;
-        $this->korektorKiloan   = $korektor?->korektor_kiloan  ?? null;
-        $this->korektorSisa     = $korektor?->korektor_sisa    ?? null;
-        $this->korektorBentes   = $korektor?->korektor_bentes  ?? null;
-        $this->korektorCatatan  = $korektor?->korektor_catatan ?? null;
+        $this->korektorPeti     = $korektor?->korektor_peti    ?: null;
+        $this->korektorKiloan   = $korektor?->korektor_kiloan  ?: null;
+        $this->korektorSisa     = $korektor?->korektor_sisa    ?: null;
+        $this->korektorBentes   = $korektor?->korektor_bentes  ?: null;
+        $this->korektorCatatan  = $korektor?->korektor_catatan ?: null;
 
         $this->loadKorektorAuditInfo($korektor);
 
@@ -481,10 +481,9 @@ class ProduksiTelurPage extends Page
             $this->gridData[$idKandang] = [];
             $this->kandangPakan[$idKandang] = null;
 
-            // ✅ key by row_index, bukan values() yang memadatkan urutan
-            $kandangDetails = $details->where('id_kandang', $idKandang)->keyBy('row_index');
+            $kandangDetails = $details->where('id_kandang', $idKandang)->values();
 
-            if ($kandangDetails->isNotEmpty()) {
+            if ($kandangDetails->count() > 0) {
                 $this->kandangPakan[$idKandang] = $kandangDetails->first()->id_produksi_pakan_campuran;
             }
 
@@ -495,17 +494,17 @@ class ProduksiTelurPage extends Page
                     $trayRaw  = (float) $kandangDetails[$i]->jumlah_telur_tray;
 
                     $this->gridData[$idKandang][$i] = [
-                        'id'    => $kandangDetails[$i]->id,
+                        'id' => $kandangDetails[$i]->id,
                         'butir' => $butirRaw ?: null,
                         'kilo'  => $kiloRaw  ?: null,
                         'tray'  => $trayRaw  ?: null,
                     ];
                 } else {
                     $this->gridData[$idKandang][$i] = [
-                        'id'    => null,
+                        'id' => null,
                         'butir' => null,
-                        'kilo'  => null,
-                        'tray'  => null,
+                        'kilo' => null,
+                        'tray' => null,
                     ];
                 }
             }
