@@ -71,10 +71,10 @@ class ProduksiTelurService
 
             // 8. Record Jurnal Kredit Selisih (Penyeimbang Balance)
             if ($selisih != 0) {
-                $selisihSubAkun  = SubAnakAkun::where('kode_sub_anak_akun', '4400-00')->first();
-                $namaSelisihAkun = $selisihSubAkun?->nama_sub_anak_akun ?? 'Pendapatan Kelebihan Produksi Telur';
+                $selisihSubAkun  = SubAnakAkun::where('kode_sub_anak_akun', '5800-02')->first();
+                $namaSelisihAkun = $selisihSubAkun?->nama_sub_anak_akun ?? 'Beban Kelebihan Produksi';
 
-                $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, '4400-00', $namaSelisihAkun, 'k', $userId, [
+                $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, '5800-02', $namaSelisihAkun, 'k', $userId, [
                     'nama_barang' => $namaSelisihAkun,
                     'keterangan'  => "Selisih penyeimbang produksi telur vs pakan",
                     'banyak'      => 1,
