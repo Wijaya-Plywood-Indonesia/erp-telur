@@ -6,6 +6,7 @@ use App\Models\JurnalPembantuHeader;
 use App\Models\JurnalPembantuItem;
 use App\Models\ProduksiPakan;
 use App\Models\SubAnakAkun;
+use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -51,14 +52,46 @@ class ProduksiPakanService
                 || (float)$i->keluar_l2 > 0
         );
 
-        DB::transaction(function () use ($produksi, $userId, $adaMentah) {
+        $tgl  = $produksi->tanggal_produksi->toDateString();
+        $nota = 'PROD-' . $produksi->id . '-' . $tgl;
+
+        DB::transaction(function () use ($produksi, $userId, $adaMentah, $tgl, $nota) {
+
+            // 1. Bersihkan draft jurnal lama jika ada (cegah duplikasi saat re-validasi)
+            $this->hapusJurnalLama($nota);
 
             if ($adaMentah) {
-                $this->buatJurnalProses1($produksi, $userId);
+                $this->buatJurnalProses1($produksi, $userId, $tgl, $nota);
             } else {
                 Log::info("[ProduksiPakan] Tidak ada data mentah terisi, jurnal tidak dibuat.");
             }
         });
+    }
+
+    /**
+     * Bersihkan draft jurnal lama untuk nota tertentu sebelum jurnal baru dibuat.
+     * Jika jurnal lama sudah diposting ke Buku Besar, tolak dan lempar Exception —
+     * regenerasi otomatis tidak boleh menimpa jurnal yang sudah diposting.
+     */
+    public function hapusJurnalLama(string $nota): void
+    {
+        $isPosted = JurnalPembantuHeader::where('modul_asal', 'produksi_pakan')
+            ->where('no_dokumen', $nota)
+            ->where('status', JurnalPembantuHeader::STATUS_DIPOSTING)
+            ->exists();
+
+        if ($isPosted) {
+            throw new Exception("Jurnal produksi pakan ini ({$nota}) sudah diposting ke Buku Besar. Batalkan posting terlebih dahulu!");
+        }
+
+        $headers = JurnalPembantuHeader::where('modul_asal', 'produksi_pakan')
+            ->where('no_dokumen', $nota)
+            ->get();
+
+        foreach ($headers as $header) {
+            $header->items()->delete();
+            $header->delete();
+        }
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
@@ -72,28 +105,14 @@ class ProduksiPakanService
     |  K/D: Selisih balancing jika ada
     ═══════════════════════════════════════════════════════════════════════ */
 
-    private function buatJurnalProses1(ProduksiPakan $produksi, int $userId): void
+    private function buatJurnalProses1(ProduksiPakan $produksi, int $userId, string $tgl, string $nota): void
     {
-        $tgl      = $produksi->tanggal_produksi->toDateString();
-        $nota     = 'PROD-' . $produksi->id . '-' . $tgl;
         $ket      = "Produksi Pakan | Tgl: {$tgl}";
         $noJurnal = $this->nextNoJurnal() ?? 0;
 
         /**
          * LANGKAH 1: Hitung total per bahan mentah (gabungkan semua kandang)
-         *
-         * Kenapa kita gabung dulu sebelum buat jurnal?
-         * Karena kita ingin 1 baris kredit per bahan mentah, bukan
-         * 3 baris (pullet + l1 + l2) untuk bahan yang sama.
-         *
-         * Contoh hasil $totalPerMentah:
-         * [
-         *   barang_id_1 => ['barang' => ..., 'totalKg' => 2600, 'totalNilai' => 3.380.000],
-         *   barang_id_2 => ['barang' => ..., 'totalKg' => 800,  'totalNilai' => 320.000],
-         * ]
          */
-        // ... di dalam buatJurnalProses1 ...
-
         $totalPerMentah = [];
         foreach ($produksi->pakanMentahs as $mentah) {
             $jumlahKg = (float)$mentah->keluar_pullet
@@ -106,7 +125,6 @@ class ProduksiPakanService
             $id       = $barang->id;
             $harga    = (float)($barang->harga_jual ?? 0);
 
-            // Menggunakan round() untuk menghindari miss desimal di pembukuan
             $nilaiTambahan = round($jumlahKg * $harga, 2);
 
             if (!isset($totalPerMentah[$id])) {
@@ -124,9 +142,6 @@ class ProduksiPakanService
 
         /**
          * LANGKAH 2: Hitung total nilai per pakan campuran yang dihasilkan
-         *
-         * Setiap kandang (pullet/l1/l2) menghasilkan pakan campuran.
-         * Total bahan mentah yang masuk = nilai debit pakan campuran itu.
          */
         $kandangs = [
             'pullet' => ['field' => 'keluar_pullet', 'label' => 'Pullet'],
@@ -134,7 +149,6 @@ class ProduksiPakanService
             'l2'     => ['field' => 'keluar_l2',     'label' => 'Layer 2'],
         ];
 
-        // Map: kandangKey => ['campuran' => model, 'totalKgMasuk' => float]
         $hasilPerKandang = [];
 
         foreach ($kandangs as $kandangKey => $kandang) {
@@ -150,7 +164,6 @@ class ProduksiPakanService
                 };
             });
 
-            // Hitung total bahan mentah yang masuk ke kandang ini (dalam kg)
             $totalMasukKandang = $produksi->pakanMentahs->sum(
                 fn($i) => (float)$i->$field
             );
@@ -166,15 +179,11 @@ class ProduksiPakanService
 
         if (empty($hasilPerKandang)) return;
 
-        // ── Penampung total debit & kredit untuk balancing ──────────────
         $totalDebit  = 0.0;
         $totalKredit = 0.0;
         $urutItem    = 1;
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  DEBIT: Pakan Campuran yang dihasilkan (Layer 1, Layer 2, Pullet)
-        |  Setiap kandang → satu baris debit
-        ───────────────────────────────────────────────────────────────── */
+        /* ─── DEBIT: Pakan Campuran yang dihasilkan ─── */
         foreach ($hasilPerKandang as $kandangKey => $hasil) {
             $barangCampuran   = $hasil['campuran']?->barang;
             $kodeAkunCampuran = $barangCampuran?->subAnakAkun?->kode_sub_anak_akun ?? '1500-00';
@@ -213,10 +222,7 @@ class ProduksiPakanService
             $totalDebit += $nilaiCampuran;
         }
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  KREDIT: Bahan Mentah yang terpakai (total semua kandang digabung)
-        |  Satu baris kredit per jenis bahan mentah
-        ───────────────────────────────────────────────────────────────── */
+        /* ─── KREDIT: Bahan Mentah yang terpakai ─── */
         $urutItem = 1;
         foreach ($totalPerMentah as $data) {
             $barang         = $data['barang'];
@@ -254,9 +260,7 @@ class ProduksiPakanService
             $totalKredit += $data['totalNilai'];
         }
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  KREDIT: Hutang Gaji
-        ───────────────────────────────────────────────────────────────── */
+        /* ─── KREDIT: Hutang Gaji ─── */
         $hGaji = $this->buatHeader([
             'no_jurnal_pembantu' => $this->nextNomorPembantu(),
             'tgl_transaksi'      => $tgl,
@@ -285,9 +289,7 @@ class ProduksiPakanService
 
         $totalKredit += self::NILAI_HUTANG_GAJI;
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  KREDIT: Hutang Listrik
-        ───────────────────────────────────────────────────────────────── */
+        /* ─── KREDIT: Hutang Listrik ─── */
         $hListrik = $this->buatHeader([
             'no_jurnal_pembantu' => $this->nextNomorPembantu(),
             'tgl_transaksi'      => $tgl,
@@ -316,18 +318,7 @@ class ProduksiPakanService
 
         $totalKredit += self::NILAI_HUTANG_LISTRIK;
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  BALANCING: Selisih Debit vs Kredit
-        |
-        |  Kenapa bisa ada selisih?
-        |  Karena harga pakan campuran (debit) dihitung dari harga_jual
-        |  barang campuran, sedangkan kredit dihitung dari harga_jual
-        |  bahan mentah. Keduanya bisa berbeda.
-        |
-        |  Aturan: Total D harus = Total K
-        |  Jika D > K → pasang selisih di sisi K (kredit pendapatan)
-        |  Jika K > D → pasang selisih di sisi D (kurangi pendapatan)
-        ───────────────────────────────────────────────────────────────── */
+        /* ─── BALANCING: Selisih Debit vs Kredit ─── */
         $selisih = $totalDebit - $totalKredit;
 
         if (abs($selisih) > 0.001) {
@@ -368,16 +359,10 @@ class ProduksiPakanService
 
     /* ═══════════════════════════════════════════════════════════════════════
     |  PROSES 2 — Pakan Campuran Keluar → Telur (SATU JURNAL)
-    |
-    |  Struktur jurnal (mengikuti foto):
-    |  D: Telur Petian, Telur Kiloan, Telur Bentes (hardcoded, nilai per kandang)
-    |  K: Setiap Pakan Campuran yang keluar (Layer 1, Layer 2, Pullet)
-    |  K: Hutang Gaji
-    |  K/D: Selisih balancing jika ada
-    |
-    |  PERBEDAAN dengan Proses 1:
-    |  Di foto, Proses 2 tetap per jurnal per kandang (jurnal 93 hanya L1+L2).
-    |  Tapi kita gabungkan juga agar konsisten — semua dalam 1 jurnal.
+    |  Catatan: method ini tidak dipanggil dari buatJurnalDariProduksi().
+    |  Jika suatu saat diaktifkan, jangan lupa hitung $nota-nya sendiri
+    |  ('PRODC-...') dan panggil hapusJurnalLama($nota) untuk nota tersebut
+    |  sebelum membuat header, sama seperti Proses 1.
     ═══════════════════════════════════════════════════════════════════════ */
 
     private function buatJurnalProses2(ProduksiPakan $produksi, int $userId): void
@@ -387,18 +372,14 @@ class ProduksiPakanService
         $ket      = "Produksi Pakan Campuran | Tgl: {$tgl}";
         $noJurnal = $this->nextNoJurnal() ?? 0;
 
+        $this->hapusJurnalLama($nota);
+
         $kandangs = [
             'pullet' => ['field' => 'keluar_pullet', 'label' => 'Pullet'],
             'l1'     => ['field' => 'keluar_l1',     'label' => 'Layer 1'],
             'l2'     => ['field' => 'keluar_l2',     'label' => 'Layer 2'],
         ];
 
-        /**
-         * LANGKAH 1: Kumpulkan pakan campuran yang keluar ke kandang
-         *
-         * Kita kumpulkan dulu semua yang ada nilainya, baru buat jurnal.
-         * Ini memastikan kita tahu total debit telur sebelum nulis baris kredit.
-         */
         $campuranKeluar = [];
 
         foreach ($produksi->pakanCampurans as $campuran) {
@@ -428,17 +409,10 @@ class ProduksiPakanService
 
         if (empty($campuranKeluar)) return;
 
-        // ── Penampung total untuk balancing ─────────────────────────────
         $totalDebit  = 0.0;
         $totalKredit = 0.0;
         $urutItem    = 1;
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  DEBIT: Telur (hardcoded per jenis telur)
-        |
-        |  Dari foto: nilai telur tampaknya adalah nilai total (bukan per kandang).
-        |  Kita pasang setiap jenis telur sebagai 1 baris debit.
-        ───────────────────────────────────────────────────────────────── */
         foreach (self::AKUN_TELUR as $telur) {
             $hTelur = $this->buatHeader([
                 'no_jurnal_pembantu' => $this->nextNomorPembantu(),
@@ -470,10 +444,6 @@ class ProduksiPakanService
             $totalDebit += $telur['nilai'];
         }
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  KREDIT: Pakan Campuran keluar per kandang
-        |  Setiap jenis pakan yang keluar → 1 baris kredit
-        ───────────────────────────────────────────────────────────────── */
         $urutItem = 1;
         foreach ($campuranKeluar as $data) {
             $barangCampuran   = $data['campuran']->barang;
@@ -513,9 +483,6 @@ class ProduksiPakanService
             $totalKredit += $nilaiCampuran;
         }
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  KREDIT: Hutang Gaji
-        ───────────────────────────────────────────────────────────────── */
         $hGaji = $this->buatHeader([
             'no_jurnal_pembantu' => $this->nextNomorPembantu(),
             'tgl_transaksi'      => $tgl,
@@ -544,9 +511,6 @@ class ProduksiPakanService
 
         $totalKredit += self::NILAI_HUTANG_GAJI;
 
-        /* ─────────────────────────────────────────────────────────────────
-        |  BALANCING: Selisih Debit vs Kredit
-        ───────────────────────────────────────────────────────────────── */
         $selisih = $totalDebit - $totalKredit;
 
         if (abs($selisih) > 0.001) {

@@ -81,6 +81,25 @@ class ProduksiPakanLaporan extends Page
                         ->required(),
                 ])
                 ->action(fn(array $data) => $this->bukaKunci($data['tanggal'])),
+
+            Action::make('batalValidasi')
+                ->label('Batal Validasi')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color('danger')
+                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                ->requiresConfirmation()
+                ->modalHeading('Batalkan Validasi Produksi Pakan')
+                ->modalDescription('Status validasi akan direset ke belum tervalidasi. Data TETAP terkunci (tidak bisa diedit) — hanya status validasinya yang dibatalkan agar bisa divalidasi ulang (misalnya untuk regenerasi jurnal pembantu).')
+                ->modalSubmitActionLabel('Ya, Batalkan Validasi')
+                ->form([
+                    DatePicker::make('tanggal')
+                        ->label('Tanggal Data')
+                        ->default($this->selectedDate)
+                        ->native(false)
+                        ->closeOnDateSelection()
+                        ->required(),
+                ])
+                ->action(fn(array $data) => $this->batalkanValidasi($data['tanggal'])),
         ];
     }
 
@@ -596,8 +615,6 @@ class ProduksiPakanLaporan extends Page
 
     private function computePermissions(): void
     {
-        // ── Super Admin: selalu bisa edit & validasi apapun kondisinya ──
-        // Tidak ada batasan untuk super admin, termasuk data yang sudah terkunci.
         if ($this->isSuperAdmin) {
             $this->canEdit            = true;
             $this->showSaveButton     = true;
@@ -605,8 +622,15 @@ class ProduksiPakanLaporan extends Page
             return;
         }
 
-        // ── Data sudah divalidasi (terkunci permanen) ──
-        // Tidak ada user biasa yang bisa mengubah apapun setelah ini.
+        // ── Admin: tidak bisa edit isi data, hanya bisa memvalidasi ──
+        // setelah draft pernah disimpan/dikunci oleh creator.
+        if ($this->isAdmin) {
+            $this->canEdit            = false;
+            $this->showSaveButton     = false;
+            $this->showValidateButton = $this->isDraftLocked && !$this->isLocked;
+            return;
+        }
+
         if ($this->isLocked) {
             $this->canEdit            = false;
             $this->showSaveButton     = false;
@@ -614,33 +638,22 @@ class ProduksiPakanLaporan extends Page
             return;
         }
 
-        // ── Data sudah disimpan sebagai draft (status: menunggu validasi) ──
-        // Di sinilah inti perubahan:
-        //   - Creator (yang menginput) → TIDAK bisa edit lagi.
-        //     Alasannya: data sudah "diserahkan" ke validator, tidak etis
-        //     jika creator bisa diam-diam mengubah data tanpa sepengetahuan validator.
-        //   - Non-creator (validator) → bisa edit & bisa klik tombol validasi.
-        //     Validator perlu bisa koreksi jika ada kesalahan sebelum mengunci.
         if ($this->isDraftSaved) {
             if ($this->isDraftLocked) {
                 $this->canEdit            = false;
                 $this->showSaveButton     = false;
-                $this->showValidateButton = (! $this->isCreator) && $this->isAdmin; // creator tetap tidak boleh validasi datanya sendiri
+                $this->showValidateButton = false; // user biasa tidak boleh validasi
             } else {
-                // Kunci sudah dibuka (lewat tombol "Buka Data") —
-                // sekarang boleh diedit ulang & disimpan lagi.
                 $this->canEdit            = $this->isCreator;
                 $this->showSaveButton     = $this->isCreator;
-                $this->showValidateButton = false; // harus disimpan dulu (otomatis terkunci lagi) sebelum bisa divalidasi
+                $this->showValidateButton = false;
             }
             return;
         }
 
-        // ── Belum ada data tersimpan (canvas kosong / baru diisi) ──
-        // Siapapun yang membuka halaman ini bisa mengisi dan menyimpan.
         $this->canEdit            = true;
         $this->showSaveButton     = true;
-        $this->showValidateButton = false; // belum bisa validasi sebelum disimpan
+        $this->showValidateButton = false;
     }
 
     public function autoFillKolom(string $jenis): void
@@ -833,6 +846,50 @@ class ProduksiPakanLaporan extends Page
         Notification::make()
             ->title('Kunci berhasil dibuka')
             ->body("Data produksi pakan untuk tanggal {$tanggal} kini bisa diedit kembali oleh creator.")
+            ->warning()->send();
+
+        if ($tanggal === $this->selectedDate) {
+            $this->loadDataByDate();
+        }
+    }
+
+    public function batalkanValidasi(string $tanggal): void
+    {
+        if (! $this->isSuperAdmin && ! $this->isAdmin) {
+            Notification::make()->title('Tidak diizinkan.')->danger()->send();
+            return;
+        }
+
+        $record = ProduksiPakan::whereDate('tanggal_produksi', $tanggal)->first();
+
+        if (! $record) {
+            Notification::make()
+                ->title('Data tidak ditemukan')
+                ->body("Tidak ada data produksi pakan untuk tanggal {$tanggal}.")
+                ->danger()->send();
+            return;
+        }
+
+        if (empty($record->validated_by)) {
+            Notification::make()
+                ->title('Belum Tervalidasi')
+                ->body("Data tanggal {$tanggal} memang belum berstatus tervalidasi.")
+                ->warning()->send();
+            return;
+        }
+
+        DB::transaction(function () use ($record) {
+            // Hanya reset status validasi — is_locked SENGAJA tidak diubah,
+            // agar data tetap terkunci dari pengeditan biasa.
+            $record->update([
+                'validated_by' => null,
+                'validated_at' => null,
+            ]);
+        });
+
+        Notification::make()
+            ->title('Validasi Dibatalkan')
+            ->body("Status validasi untuk tanggal {$tanggal} telah direset. Silakan klik tombol validasi lagi untuk membuat jurnal pembantu.")
             ->warning()->send();
 
         if ($tanggal === $this->selectedDate) {
