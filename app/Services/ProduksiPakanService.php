@@ -17,8 +17,8 @@ class ProduksiPakanService
     const KODE_HUTANG_LISTRIK = '2210-02';
 
     // Akun Penyesuaian Selisih Produksi
-    const KODE_PENDAPATAN_KELEBIHAN_PAKAN = '4400-01';
-    const KODE_PENDAPATAN_KELEBIHAN_TELUR = '4400-02';
+    const KODE_BEBAN_KELEBIHAN_PAKAN      = '5800-02'; // sebelumnya '4400-01' (Pendapatan Kelebihan Produksi Pakan)
+    const KODE_PENDAPATAN_KELEBIHAN_TELUR = '5800-02';
 
     // Akun Debet Telur (Proses 2) — hardcoded
     const AKUN_TELUR = [
@@ -324,8 +324,8 @@ class ProduksiPakanService
         if (abs($selisih) > 0.001) {
             $mapSelisih   = $selisih > 0 ? 'k' : 'd';
             $nilaiSelisih = abs($selisih);
-            $namaSelisih  = $this->getNamaAkun(self::KODE_PENDAPATAN_KELEBIHAN_PAKAN)
-                ?: 'Pendapatan kelebihan produksi pakan';
+            $namaSelisih  = $this->getNamaAkun(self::KODE_BEBAN_KELEBIHAN_PAKAN)
+                ?: 'Beban kelebihan produksi';
 
             $hSelisih = $this->buatHeader([
                 'no_jurnal_pembantu' => $this->nextNomorPembantu(),
@@ -333,7 +333,7 @@ class ProduksiPakanService
                 'jenis_transaksi'    => 'pk',
                 'modul_asal'         => 'produksi_pakan',
                 'jurnal'             => $noJurnal,
-                'no_akun'            => self::KODE_PENDAPATAN_KELEBIHAN_PAKAN,
+                'no_akun'            => self::KODE_BEBAN_KELEBIHAN_PAKAN,
                 'nama_akun'          => $namaSelisih,
                 'map'                => $mapSelisih,
                 'keterangan'         => "Penyesuaian Selisih Produksi Pakan | {$ket}",

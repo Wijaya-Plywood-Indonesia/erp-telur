@@ -165,7 +165,13 @@
             $fmt=fn(?float $v)=> $v !== null ? number_format($v, 0, ',', '.') : '-';
 
             // Format QTY diubah agar lebih robust menolak null/string kosong
-            $fmtQty = fn($v) => (is_numeric($v) && $v != 0) ? number_format((float)$v, 0, ',', '.') : null;
+            // [FIX] Sebelumnya selalu number_format(...,0) sehingga 7,5 dibulatkan jadi 8.
+            // Sekarang: kalau nilainya bulat, tampil tanpa desimal; kalau tidak, tampil dengan desimal (mengikuti pola buku besar).
+            $fmtQty = fn($v) => (is_numeric($v) && $v != 0)
+                ? ((float)$v == (int)$v
+                    ? number_format((float)$v, 0, ',', '.')
+                    : rtrim(rtrim(number_format((float)$v, 4, ',', '.'), '0'), ','))
+                : null;
 
             $flattenSections = null;
             $flattenSections = function(array $sections, int $depth = 0) use (&$flattenSections): array {
