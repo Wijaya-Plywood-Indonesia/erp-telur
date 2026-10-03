@@ -49,6 +49,16 @@
     .detail-row { background-color: #fefce8 !important; }
     .detail-table { width: 100%; border: 1px solid #fde047; margin: 5px 0; background: white; }
     .detail-table th { background: #facc15; color: #854d0e; font-size: 11px; }
+
+    /* RINGKASAN TOTAL */
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .summary-card { background: #ffffff; border-radius: 8px; padding: 16px 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #9ca3af; font-family: sans-serif; }
+    .summary-card .label { font-size: 12px; font-weight: bold; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; }
+    .summary-card .value { font-size: 22px; font-weight: 800; color: #111827; margin-top: 4px; }
+    .summary-card .sub { font-size: 12px; color: #6b7280; margin-top: 6px; line-height: 1.5; }
+    .summary-tunai { border-left-color: #10b981; }
+    .summary-transfer { border-left-color: #1F4ED8; }
+    .summary-total { border-left-color: #f59e0b; background: #fffbeb; }
 </style>
 
 <div class="p-10 bg-gray-50 min-h-screen">
@@ -100,6 +110,30 @@
                 </svg>
                 Export Excel
             </button>
+        </div>
+    </div>
+
+    <div class="summary-grid">
+        <div class="summary-card summary-tunai">
+            <div class="label">Total Tunai</div>
+            <div class="value">Rp {{ number_format($ringkasan['tunai'], 0, ',', '.') }}</div>
+            <div class="sub">Uang tunai masuk</div>
+        </div>
+        <div class="summary-card summary-transfer">
+            <div class="label">Total Transfer / Bank</div>
+            <div class="value">Rp {{ number_format($ringkasan['transfer'], 0, ',', '.') }}</div>
+            <div class="sub">
+                @forelse($ringkasan['per_bank'] as $bank => $nilai)
+                    {{ $bank }}: <strong>Rp {{ number_format($nilai, 0, ',', '.') }}</strong><br>
+                @empty
+                    Tidak ada transfer
+                @endforelse
+            </div>
+        </div>
+        <div class="summary-card summary-total">
+            <div class="label">Total Keseluruhan</div>
+            <div class="value">Rp {{ number_format($ringkasan['total'], 0, ',', '.') }}</div>
+            <div class="sub">Tunai + Transfer dari {{ number_format($ringkasan['jumlah_nota'], 0, ',', '.') }} nota</div>
         </div>
     </div>
 

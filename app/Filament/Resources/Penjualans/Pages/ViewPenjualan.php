@@ -274,9 +274,15 @@ class ViewPenjualan extends ViewRecord
                 ])
                 ->action(function (array $data, $record) {
                     try {
-                        $data['total'] = $data['total_saat_ini'];
-                        $data['bayar'] = (float) ($data['bayar'] ?? 0) > 0 ? $data['bayar'] + $record->bayar : $record->bayar;
-                        $data['kembalian'] = (float) ($data['kembalian'] ?? 0) > 0 ? $data['kembalian'] + $record->kembalian : $record->kembalian;
+                        // Field "Bayar" di form sudah berisi TOTAL uang yang dibayar pelanggan
+                        // (terisi otomatis dari nota & divalidasi terhadap total baru),
+                        // jadi tidak boleh ditambah lagi dengan $record->bayar.
+                        $totalBaru = (float) $data['total_saat_ini'];
+                        $bayarBaru = (float) ($data['bayar'] ?? 0);
+
+                        $data['total']     = $totalBaru;
+                        $data['bayar']     = $bayarBaru;
+                        $data['kembalian'] = max(0, $bayarBaru - $totalBaru);
 
                         SyncPenjualanService::syncPenjualan($record->id, $data);
 

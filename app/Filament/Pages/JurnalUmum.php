@@ -16,6 +16,7 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Support\Enums\Width;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Set;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +51,11 @@ class JurnalUmum extends Page implements HasActions, HasForms
 
     public array $selectedIds = [];
     public bool $selectAll = false;
+
+    public function getMaxContentWidth(): Width|string|null
+    {
+        return Width::Full;
+    }
 
     public function mount(): void
     {

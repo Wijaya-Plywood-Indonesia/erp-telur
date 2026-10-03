@@ -40,11 +40,29 @@ class SyncPenjualanService
         DB::transaction(function () use ($penjualanId, $data) {
             $penjualan = Penjualan::findOrFail($penjualanId);
 
+            $bayar = (float) $data['bayar'];
+            $metode = strtoupper((string) $penjualan->metode_pembayaran);
+
+            // bayar_tunai / bayar_transfer ikut diselaraskan dengan bayar baru,
+            // karena dipakai oleh jurnal kas dan rekap penjualan (sama seperti saat input di POS).
+            if ($metode === 'TRANSFER') {
+                $bayarTunai = 0;
+                $bayarTransfer = $bayar;
+            } elseif ($metode === 'TUNAI & TRANSFER') {
+                // Bagian transfer dianggap tetap (sudah masuk bank), selisihnya di sisi tunai
+                $bayarTransfer = (float) $penjualan->bayar_transfer;
+                $bayarTunai = max(0, $bayar - $bayarTransfer);
+            } else {
+                $bayarTunai = $bayar;
+                $bayarTransfer = 0;
+            }
+
             $penjualan->update([
                 'total' => $data['total'],
-                'bayar' => $data['bayar'],
+                'bayar' => $bayar,
                 'kembalian' => $data['kembalian'],
-                // 'metode_pembayaran' => strtoupper($data['metode_bayar']),
+                'bayar_tunai' => $bayarTunai,
+                'bayar_transfer' => $bayarTransfer,
                 'keterangan_pembayaran' => $data['keterangan'],
             ]);
             
