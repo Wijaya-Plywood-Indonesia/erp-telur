@@ -117,7 +117,7 @@
         <div class="summary-card summary-tunai">
             <div class="label">Total Tunai</div>
             <div class="value">Rp {{ number_format($ringkasan['tunai'], 0, ',', '.') }}</div>
-            <div class="sub">Uang tunai masuk</div>
+            <div class="sub">Uang tunai masuk (setelah kembalian)</div>
         </div>
         <div class="summary-card summary-transfer">
             <div class="label">Total Transfer / Bank</div>
