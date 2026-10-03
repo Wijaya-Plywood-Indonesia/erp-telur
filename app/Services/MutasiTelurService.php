@@ -17,7 +17,10 @@ use Illuminate\Support\Facades\Log;
  *
  * Jurnal (per jenis telur):
  *   Debet  : Telur {petian|kiloan|bentes} {Wijaya|Wahana}
- *   Kredit : Telur {petian|kiloan|bentes} Ruko   (1400-11 / 1400-12 / 1400-13)
+ *   Kredit : Telur {petian|kiloan|bentes} Ruko
+ *
+ * Akun TIDAK di-hardcode: barang dicari di Master Barang berdasarkan nama
+ * (memuat "telur" + jenis + lokasi), lalu akun diambil dari sub akun barang tsb.
  *
  * Mutasi disimpan sebagai DRAFT di Jurnal Pembantu. Stok (dihitung dari Jurnal Umum)
  * baru berubah setelah jurnal diposting manual dari menu Jurnal Pembantu.
@@ -37,18 +40,10 @@ class MutasiTelurService
         'bentes' => 'Telur Bentes',
     ];
 
-    /** Akun persediaan telur Ruko (sesuai Stok Matrix). */
-    public const KODE_RUKO = [
-        'petian' => '1400-11',
-        'kiloan' => '1400-12',
-        'bentes' => '1400-13',
-    ];
+    private const LOKASI_ASAL = 'ruko';
 
-    /** Akun persediaan telur di Wijaya / Wahana (sesuai Stok Matrix). */
-    public const KODE_TUJUAN = [
-        'wijaya' => ['petian' => '1400-14', 'kiloan' => '1400-15', 'bentes' => null],
-        'wahana' => ['petian' => '1400-16', 'kiloan' => '1400-17', 'bentes' => '1400-18'],
-    ];
+    /** Cache pencarian barang selama satu request. */
+    private array $cacheBarang = [];
 
     /**
      * @param  array<int, array{jenis:string, qty:float|int|string}>  $items
@@ -79,29 +74,32 @@ class MutasiTelurService
             $lines = [];
 
             foreach ($qtyPerJenis as $jenis => $qty) {
-                $kodeRuko = self::KODE_RUKO[$jenis];
-                $ruko     = $this->resolveAkun($kodeRuko);
-                $barang   = Barang::with('subAnakAkun')
-                    ->whereHas('subAnakAkun', fn($q) => $q->where('kode_sub_anak_akun', $kodeRuko))
-                    ->first();
+                // Asal (Ruko)
+                $barangRuko = $this->wajibBarang($jenis, self::LOKASI_ASAL);
+                $akunRuko   = $barangRuko->subAnakAkun;
 
                 // Validasi stok Ruko (dikurangi draft mutasi lain yang belum diposting)
-                $stokRuko = ($barang ? (float) $barang->stok_buku_besar : 0.0) - $this->draftKeluar($kodeRuko);
+                $stokRuko = $this->stokAkun($akunRuko->kode_sub_anak_akun)
+                    - $this->draftKeluar($akunRuko->kode_sub_anak_akun);
+
                 if ($stokRuko + 0.0001 < $qty) {
                     throw new Exception(sprintf(
                         'Stok %s tidak cukup (sudah dikurangi draft mutasi lain). Stok: %s, diminta: %s.',
-                        $ruko->nama_sub_anak_akun,
+                        $akunRuko->nama_sub_anak_akun,
                         rtrim(rtrim(number_format($stokRuko, 2, '.', ''), '0'), '.'),
                         rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.')
                     ));
                 }
 
-                $tujuanAkun = $this->resolveAkunTujuan($tujuan, $jenis);
-                $harga      = (float) ($barang?->harga_jual ?: $barang?->harga_beli ?: 0);
+                // Tujuan (Wijaya / Wahana)
+                $barangTujuan = $this->wajibBarang($jenis, $tujuan);
+                $akunTujuan   = $barangTujuan->subAnakAkun;
+
+                $harga = (float) ($barangRuko->harga_jual ?: $barangRuko->harga_beli ?: 0);
 
                 // Debet tujuan, Kredit Ruko (nilai sama agar balance)
-                $lines[] = $this->line($tujuanAkun, 'd', $qty, $harga);
-                $lines[] = $this->line($ruko, 'k', $qty, $harga);
+                $lines[] = $this->line($akunTujuan, 'd', $qty, $harga);
+                $lines[] = $this->line($akunRuko, 'k', $qty, $harga);
             }
 
             $nota = $this->generateNota($tanggal);
@@ -179,15 +177,37 @@ class MutasiTelurService
             ->sum('banyak');
     }
 
-    /** Cari akun tujuan tanpa melempar error (null bila belum ada). */
-    public function cariAkunTujuan(string $tujuan, string $jenis): ?SubAnakAkun
+    /**
+     * Cari barang telur di Master Barang berdasarkan nama.
+     * Nama harus memuat "telur" + jenis + lokasi. Nama persis "Telur {Jenis} {Lokasi}" diprioritaskan.
+     * Hanya barang yang sudah punya akun (id_sub_anak_akun) yang dipakai.
+     */
+    public function cariBarang(string $jenis, string $lokasi): ?Barang
     {
-        $kode = self::KODE_TUJUAN[$tujuan][$jenis] ?? null;
-        if ($kode) {
-            return SubAnakAkun::where('kode_sub_anak_akun', $kode)->first();
+        $key = "{$jenis}|{$lokasi}";
+        if (array_key_exists($key, $this->cacheBarang)) {
+            return $this->cacheBarang[$key];
         }
 
-        return null;
+        $base = fn() => Barang::with('subAnakAkun')
+            ->whereNotNull('id_sub_anak_akun')
+            ->whereHas('subAnakAkun');
+
+        $barang = $base()
+            ->whereRaw('LOWER(nama_barang) = ?', [strtolower("telur {$jenis} {$lokasi}")])
+            ->orderBy('id')
+            ->first();
+
+        if (!$barang) {
+            $barang = $base()
+                ->whereRaw('LOWER(nama_barang) LIKE ?', ['%telur%'])
+                ->whereRaw('LOWER(nama_barang) LIKE ?', ['%' . strtolower($jenis) . '%'])
+                ->whereRaw('LOWER(nama_barang) LIKE ?', ['%' . strtolower($lokasi) . '%'])
+                ->orderBy('id')
+                ->first();
+        }
+
+        return $this->cacheBarang[$key] = $barang;
     }
 
     /** Stok akun = total banyak debet - kredit di Jurnal Umum (sama dengan Stok Matrix). */
@@ -217,16 +237,19 @@ class MutasiTelurService
     {
         $info = ['stok_ruko' => '', 'stok_tujuan' => ''];
 
-        if (!$jenis || !isset(self::KODE_RUKO[$jenis])) {
+        if (!$jenis || !isset(self::JENIS[$jenis])) {
             return $info;
         }
 
-        $info['stok_ruko'] = $this->fmt($this->stokAkun(self::KODE_RUKO[$jenis]));
+        $ruko = $this->cariBarang($jenis, self::LOKASI_ASAL);
+        $info['stok_ruko'] = $ruko
+            ? $this->fmt($this->stokAkun($ruko->subAnakAkun->kode_sub_anak_akun))
+            : 'Akun belum ada';
 
         if ($tujuan && isset(self::TUJUAN[$tujuan])) {
-            $akun = $this->cariAkunTujuan($tujuan, $jenis);
-            $info['stok_tujuan'] = $akun
-                ? $this->fmt($this->stokAkun($akun->kode_sub_anak_akun))
+            $barang = $this->cariBarang($jenis, $tujuan);
+            $info['stok_tujuan'] = $barang
+                ? $this->fmt($this->stokAkun($barang->subAnakAkun->kode_sub_anak_akun))
                 : 'Akun belum ada';
         }
 
@@ -234,6 +257,24 @@ class MutasiTelurService
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────
+
+    private function wajibBarang(string $jenis, string $lokasi): Barang
+    {
+        $barang = $this->cariBarang($jenis, $lokasi);
+
+        if (!$barang) {
+            throw new Exception(sprintf(
+                'Barang "%s %s" belum ada di Master Barang atau belum punya akun. '
+                . 'Buat barangnya (nama memuat "telur", "%s", "%s") dan hubungkan ke akun persediaannya.',
+                self::JENIS[$jenis],
+                ucfirst($lokasi),
+                $jenis,
+                $lokasi
+            ));
+        }
+
+        return $barang;
+    }
 
     private function posting(string $tanggal, string $nota, string $ket, array $lines, int $userId, bool $langsungPosting): void
     {
@@ -303,29 +344,6 @@ class MutasiTelurService
             'qty'         => $qty,
             'harga'       => $harga,
         ];
-    }
-
-    private function resolveAkun(string $kode): SubAnakAkun
-    {
-        $akun = SubAnakAkun::where('kode_sub_anak_akun', $kode)->first();
-        if (!$akun) {
-            throw new Exception("Akun {$kode} tidak ditemukan di Chart of Accounts.");
-        }
-        return $akun;
-    }
-
-    private function resolveAkunTujuan(string $tujuan, string $jenis): SubAnakAkun
-    {
-        $akun = $this->cariAkunTujuan($tujuan, $jenis);
-
-        if (!$akun) {
-            throw new Exception(sprintf(
-                'Akun %s %s belum ada. Buat akunnya di Chart of Accounts lalu isi kodenya di MutasiTelurService::KODE_TUJUAN.',
-                self::JENIS[$jenis], self::TUJUAN[$tujuan]
-            ));
-        }
-
-        return $akun;
     }
 
     private function fmt(float $n): string
