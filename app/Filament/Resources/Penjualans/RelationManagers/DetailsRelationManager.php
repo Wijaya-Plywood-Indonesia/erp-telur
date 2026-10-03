@@ -16,9 +16,12 @@ use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Support\Enums\FontWeight;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class DetailsRelationManager extends RelationManager
@@ -205,51 +208,61 @@ class DetailsRelationManager extends RelationManager
     {
         return $table
             ->recordTitleAttribute('no_nota')
+            ->heading('Rincian Barang')
+            ->striped()
+            ->defaultSort('id')
+            ->emptyStateHeading('Belum ada barang di nota ini')
             ->columns([
 
+                // Nama barang tebal; catatan (jika ada) tampil kecil di bawahnya,
+                // sehingga tidak perlu kolom Keterangan yang kebanyakan berisi "Tidak Ada".
                 TextColumn::make('barang.nama_barang')
                     ->label('Barang')
+                    ->weight(FontWeight::SemiBold)
+                    ->description(fn ($record): ?string => filled($record->keterangan)
+                        ? Str::limit($record->keterangan, 70)
+                        : null)
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('satuan')
-                    ->label('Satuan')
-                    ->alignCenter(),
-
+                // Qty dan satuan digabung: "1 Ekor", "35 Peti"
                 TextColumn::make('qty')
                     ->label('Qty')
-                    ->numeric()
-                    ->alignCenter(),
+                    ->formatStateUsing(fn ($state, $record): string => trim(
+                        number_format((float) $state, 0, ',', '.') . ' ' . ($record->satuan ?? '')
+                    ))
+                    ->alignRight(),
 
                 TextColumn::make('harga_awal')
                     ->label('Harga Awal')
-                    ->money('IDR', locale: 'id')
-                    ->alignRight(),
+                    ->money('IDR', locale: 'id', decimalPlaces: 0)
+                    ->alignRight()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('harga_jual')
                     ->label('Harga Jual')
-                    ->money('IDR', locale: 'id')
+                    ->money('IDR', locale: 'id', decimalPlaces: 0)
                     ->alignRight(),
 
+                // Potongan: "-" jika tidak ada, merah jika ada
                 TextColumn::make('potongan')
                     ->label('Potongan')
-                    ->money('IDR', locale: 'id')
-                    ->placeholder('0')
+                    ->formatStateUsing(fn ($state): string => (float) $state > 0
+                        ? '- Rp ' . number_format((float) $state, 0, ',', '.')
+                        : '-')
+                    ->color(fn ($state): string => (float) $state > 0 ? 'danger' : 'gray')
                     ->alignRight(),
 
                 TextColumn::make('subtotal')
                     ->label('Subtotal')
-                    ->money('IDR', locale: 'id')
+                    ->money('IDR', locale: 'id', decimalPlaces: 0)
                     ->alignRight()
-                    ->weight('bold'),
-
-                TextColumn::make('keterangan')
-                    ->label('Keterangan')
-                    ->limit(40)
-                    ->placeholder('Tidak Ada')
-                    ->tooltip(fn($state) => $state)
-                    ->wrap(),
-
+                    ->weight(FontWeight::Bold)
+                    ->summarize(
+                        Sum::make()
+                            ->label('Total')
+                            ->money('IDR', locale: 'id', decimalPlaces: 0)
+                    ),
 
             ])
             ->filters([
@@ -257,6 +270,8 @@ class DetailsRelationManager extends RelationManager
             ])
             ->headerActions([
                 CreateAction::make()
+                    ->label('Tambah Barang')
+                    ->modalHeading('Tambah Barang')
                     ->visible(function () {
                         $penjualan = $this->getOwnerRecord();
 
