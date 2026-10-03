@@ -74,6 +74,7 @@ class JurnalPembantuHeader extends Model
         'pembelian_pakan'  => 'Pembelian Pakan',
         'pembelian_doc'    => 'Pembelian DOC (Bibit)',
         'produksi_telur'   => 'Produksi Telur (Kandang)',
+        'mutasi_telur'     => 'Mutasi Telur (Ruko ke Pabrik)',
         'penggajian'       => 'Penggajian',
         'lain'             => 'Lain-lain',
     ];
