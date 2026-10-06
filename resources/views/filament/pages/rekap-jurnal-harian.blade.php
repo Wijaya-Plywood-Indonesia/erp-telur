@@ -172,8 +172,19 @@
                                 <td class="mono">{{ $l['jurnal'] }}</td>
                                 <td class="mono">{{ $l['no_akun'] }}</td>
                                 <td class="kt">
+                                    @php
+                                        // Buang segmen "| No.Nota: XXX" hanya bila XXX sama dengan nomor di kolom nama
+                                        $ket = $l['keterangan'];
+                                        if ($l['nama']) {
+                                            $ket = preg_replace(
+                                                '/\s*\|\s*No\.Nota:\s*' . preg_quote($l['nama'], '/') . '(?=\s*(?:\||$))/i',
+                                                '',
+                                                $ket
+                                            );
+                                        }
+                                    @endphp
                                     @if($l['nama'])<span class="dim">{{ $l['nama'] }}</span>@endif
-                                    {{ $l['keterangan'] }}
+                                    {{ $ket }}
                                 </td>
                                 <td class="c">{{ $l['map'] }}</td>
                                 <td class="r">{{ $q($l['banyak']) }}</td>
