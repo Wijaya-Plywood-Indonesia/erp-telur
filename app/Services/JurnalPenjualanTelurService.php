@@ -19,8 +19,13 @@ use Illuminate\Support\Facades\Log;
 class JurnalPenjualanTelurService
 {
     const KODE_KAS           = '1121-00';
+
+    /* [DINONAKTIFKAN 10 Sep 2026] Peti kosong sekarang diinput admin langsung secara global,
+       bukan lagi otomatis per transaksi penjualan. Konstanta ini disimpan (bukan dihapus)
+       siapa tau logic peti otomatis mau dipakai lagi ke depannya.
     const KG_PER_PETI        = 10;
     const HARGA_PETI_DEFAULT = 6000;
+    */
 
     private array $akunCache = [];
 
@@ -69,6 +74,7 @@ class JurnalPenjualanTelurService
                     fn($d) => (float) $d->qty * (float) ($d->barang->harga_beli ?? 0)
                 );
 
+                /* [DINONAKTIFKAN 10 Sep 2026] Perhitungan jumlah peti — lihat catatan di blok jurnal peti di bawah.
                 // 1. Hitung peti dari telur kiloan
                 $totalKiloan = $itemTelur
                     ->filter(fn($d) => $this->isKiloan(strtolower($d->nama_barang ?? '')))
@@ -83,6 +89,7 @@ class JurnalPenjualanTelurService
 
                 // 3. Gabungkan total peti
                 $jumlahPeti = $petiDariKiloan + $petiDariPetian;
+                */
 
                 $ketJual  = $this->ket('Penjualan', $nota, $customer);
                 $barisKas = $this->resolveBarisKas($penjualan, $totalTelur);
@@ -255,6 +262,12 @@ class JurnalPenjualanTelurService
                     }
                 }
 
+                /* [DINONAKTIFKAN 10 Sep 2026] Jurnal otomatis peti isi/kosong — peti kosong sekarang
+                   diinput admin langsung secara global, bukan per transaksi penjualan telur.
+                   Blok ini SENGAJA dibiarkan (bukan dihapus) kalau-kalau dibutuhkan lagi ke depannya.
+                   Catatan: kalau mau diaktifkan lagi, konstanta KG_PER_PETI, HARGA_PETI_DEFAULT dan
+                   perhitungan $jumlahPeti/$petiDariKiloan/$petiDariPetian di atas juga harus diaktifkan lagi.
+
                 // ── Peti otomatis (Peti Isi Telur KREDIT, Peti Kosong DEBIT) ─────────
                 if ($jumlahPeti > 0) {
                     $ketPeti = $this->ket('Konversi Peti Telur', $nota, $customer);
@@ -322,6 +335,7 @@ class JurnalPenjualanTelurService
                         'updated_by'  => $userId,
                     ]);
                 }
+                */
             }
 
             // ════════════════════════════════════════════════════════

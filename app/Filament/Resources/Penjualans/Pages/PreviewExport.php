@@ -33,6 +33,15 @@ class PreviewExport extends Page
 
     public $laporanGabungan = [];
 
+    /** Ringkasan total: tunai, transfer, keseluruhan, jumlah nota, dan rincian per bank */
+    public array $ringkasan = [
+        'tunai' => 0,
+        'transfer' => 0,
+        'total' => 0,
+        'jumlah_nota' => 0,
+        'per_bank' => [],
+    ];
+
     public function mount(Request $request)
     {
         // 1. Setup Filter Tanggal (Ambil dari URL atau default bulan ini)
@@ -54,7 +63,7 @@ class PreviewExport extends Page
     public function loadLaporan()
     {
         // Gunakan filter tanggal agar data di tabel preview sinkron
-        $this->laporanGabungan = Penjualan::query()
+        $penjualans = Penjualan::query()
             ->whereNotNull('validated_by')
             ->whereBetween('created_at', [
                 (string) $this->startDate.' 00:00:00',
@@ -62,7 +71,11 @@ class PreviewExport extends Page
             ])
             ->with(['user', 'validator'])
             ->latest()
-            ->get()
+            ->get();
+
+        $this->hitungRingkasan($penjualans);
+
+        $this->laporanGabungan = $penjualans
             ->map(function ($p) {
                 return [
                     'no_nota' => $p->no_nota,
@@ -88,6 +101,54 @@ class PreviewExport extends Page
                 ];
             })
             ->toArray();
+    }
+
+    /**
+     * Hitung total uang masuk per nota (satu nota dihitung sekali, bukan per baris item).
+     * Tunai = bayar_tunai dikurangi kembalian (uang riil yang masuk kas).
+     * Transfer = bayar_transfer.
+     */
+    protected function hitungRingkasan(Collection $penjualans): void
+    {
+        $tunai = 0.0;
+        $transfer = 0.0;
+        $perBank = [];
+
+        foreach ($penjualans as $p) {
+            $nTunai = (float) ($p->bayar_tunai ?? 0);
+            $nTransfer = (float) ($p->bayar_transfer ?? 0);
+
+            if ($nTunai + $nTransfer <= 0) {
+                // Data lama yang belum punya rincian split: pakai metode pembayaran
+                $total = (float) $p->total;
+                if (strtoupper((string) $p->metode_pembayaran) === 'TRANSFER') {
+                    $nTransfer = $total;
+                } else {
+                    $nTunai = $total;
+                }
+            } else {
+                // Potong kembalian dari sisi tunai
+                $nTunai = max(0, $nTunai - (float) ($p->kembalian ?? 0));
+            }
+
+            $tunai += $nTunai;
+            $transfer += $nTransfer;
+
+            if ($nTransfer > 0) {
+                $bank = trim(($p->bank ?: 'Tanpa Bank').' '.($p->no_rekening ?: ''));
+                $perBank[$bank] = ($perBank[$bank] ?? 0) + $nTransfer;
+            }
+        }
+
+        arsort($perBank);
+
+        $this->ringkasan = [
+            'tunai' => $tunai,
+            'transfer' => $transfer,
+            'total' => $tunai + $transfer,
+            'jumlah_nota' => $penjualans->count(),
+            'per_bank' => $perBank,
+        ];
     }
 
     public function data_detail($penjualan_id)
