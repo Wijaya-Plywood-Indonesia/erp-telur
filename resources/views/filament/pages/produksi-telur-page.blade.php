@@ -401,6 +401,7 @@
                                     <td class="p-1.5 sm:p-2.5 text-right text-emerald-700 dark:text-emerald-400 text-xs sm:text-base">{{ number_format($korektorTotalKg, 1) }} Kg</td>
                                 </tr>
 
+                                @unless($isPegawaiRuko)
                                 <tr class="bg-zinc-50 dark:bg-zinc-900 font-black">
                                     <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs sm:text-sm">
                                         <span class="inline-flex items-center gap-1">
@@ -412,6 +413,7 @@
                                     <td class="p-1.5 sm:p-2.5 border-r border-zinc-300 dark:border-zinc-800 text-center text-zinc-500 text-xs sm:text-sm">Kg</td>
                                     <td class="p-1.5 sm:p-2.5 text-right text-sky-600 dark:text-sky-400 text-xs sm:text-base">{{ number_format($grandTotal['kilo'], 1) }} Kg</td>
                                 </tr>
+                                @endunless
 
                                 <tr class="border-t-2 border-zinc-400 dark:border-zinc-700 font-black
                             @if(($statusKorektor['color'] ?? '') === 'success') bg-emerald-100/60 dark:bg-emerald-950/30
