@@ -510,6 +510,8 @@ class ProduksiTelurPage extends Page
             }
         }
 
+        $this->muatPakanTersimpan();
+
         $this->recalculate();
     }
 
@@ -912,5 +914,39 @@ class ProduksiTelurPage extends Page
             $this->is_validated = false;
             $this->loadExistingDataByTanggal();
         }
+    }
+
+    /**
+     * Pastikan pakan yang sudah tersimpan tetap muncul di dropdown,
+     * walaupun tidak lolos filter loadPakanByTanggal().
+     */
+    protected function muatPakanTersimpan(): void
+    {
+        // Ambil semua id pakan yang tersimpan (buang null/kosong)
+        $idTersimpan = array_values(array_filter($this->kandangPakan));
+
+        if (empty($idTersimpan)) {
+            return;
+        }
+
+        // Cari id yang belum ada di daftar opsi
+        $idSudahAda = array_column($this->allPakan, 'id');
+        $idHilang   = array_diff($idTersimpan, $idSudahAda);
+
+        if (empty($idHilang)) {
+            return;
+        }
+
+        // Ambil data pakan yang hilang itu TANPA filter tanggal/keluar
+        $tambahan = ProduksiPakanCampuran::query()
+            ->join('barangs', 'produksi_pakan_campurans.id_barang', '=', 'barangs.id')
+            ->whereIn('produksi_pakan_campurans.id', $idHilang)
+            ->get([
+                'produksi_pakan_campurans.id',
+                'barangs.nama_barang',
+            ])
+            ->toArray();
+
+        $this->allPakan = array_merge($this->allPakan, $tambahan);
     }
 }

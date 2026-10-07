@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\Log;
 
 class ProduksiTelurService
 {
+    const KODE_HUTANG_GAJI   = '2210-01';
+    const NILAI_HUTANG_GAJI  = 650000;
+    const KODE_SELISIH       = '5800-02';
+
     /**
      * Buat jurnal harian (konsolidasi) dari data hasil produksi telur & pemakaian pakan.
      */
@@ -42,7 +46,8 @@ class ProduksiTelurService
             $totalKreditPakan = array_sum(array_column($pakanGrouped, 'total_nilai'));
 
             // 4. Hitung selisih penyeimbang (Pendapatan Kelebihan Produksi Telur)
-            $selisih = $totalDebetTelur - $totalKreditPakan;
+            $totalKreditLain = self::NILAI_HUTANG_GAJI;
+            $selisih = $totalDebetTelur - $totalKreditPakan - $totalKreditLain;
 
             // 5. Generate nomor jurnal grup yang aman dari concurrency
             $nextJurnal = $this->generateNextJurnalNumber();
@@ -69,16 +74,28 @@ class ProduksiTelurService
                 ]);
             }
 
-            // 8. Record Jurnal Kredit Selisih (Penyeimbang Balance)
-            if ($selisih != 0) {
-                $selisihSubAkun  = SubAnakAkun::where('kode_sub_anak_akun', '5800-02')->first();
+            // 7b. Record Jurnal Kredit Hutang Gaji
+            $gajiNama = SubAnakAkun::where('kode_sub_anak_akun', self::KODE_HUTANG_GAJI)
+                ->value('nama_sub_anak_akun') ?? 'Hutang Gaji Pegawai Kandang';
+
+            $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, self::KODE_HUTANG_GAJI, $gajiNama, 'k', $userId, [
+                'nama_barang' => $gajiNama,
+                'keterangan'  => 'Akrual gaji pegawai kandang telur',
+                'banyak'      => 1,
+                'harga'       => self::NILAI_HUTANG_GAJI,
+            ]);
+
+            // 8. Record selisih penyeimbang (Kredit jika lebih, Debet jika kurang)
+            if (abs($selisih) > 0.001) {
+                $mapSelisih      = $selisih > 0 ? 'k' : 'd';
+                $selisihSubAkun  = SubAnakAkun::where('kode_sub_anak_akun', self::KODE_SELISIH)->first();
                 $namaSelisihAkun = $selisihSubAkun?->nama_sub_anak_akun ?? 'Beban Kelebihan Produksi';
 
-                $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, '5800-02', $namaSelisihAkun, 'k', $userId, [
+                $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, self::KODE_SELISIH, $namaSelisihAkun, $mapSelisih, $userId, [
                     'nama_barang' => $namaSelisihAkun,
-                    'keterangan'  => "Selisih penyeimbang produksi telur vs pakan",
+                    'keterangan'  => 'Selisih penyeimbang produksi telur vs pakan & gaji',
                     'banyak'      => 1,
-                    'harga'       => $selisih,
+                    'harga'       => abs($selisih),
                 ]);
             }
 

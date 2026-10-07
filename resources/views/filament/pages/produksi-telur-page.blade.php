@@ -170,10 +170,17 @@
                                 <div class="flex items-center justify-between gap-4 w-full">
                                     <span class="font-black uppercase text-[12px] tracking-wider whitespace-nowrap">{{ $kandang['nama_kandang'] }}</span>
                                     <div class="w-32">
-                                        <select wire:model.live="kandangPakan.{{ $idKandang }}" class="w-full text-center text-xs font-bold border border-zinc-400/60 dark:border-zinc-700 dark:text-white bg-white/90 dark:bg-zinc-800 py-1 px-1 rounded-none shadow-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:dark:ring-teal-400" {{ !$isEditable ? 'disabled' : '' }}>
+                                        <select
+                                            wire:key="pakan-{{ $tanggal }}-{{ $idKandang }}"
+                                            wire:model.live="kandangPakan.{{ $idKandang }}"
+                                            class="w-full text-center text-xs font-bold border border-zinc-400/60 dark:border-zinc-700 dark:text-white bg-white/90 dark:bg-zinc-800 py-1 px-1 rounded-none shadow-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:dark:ring-teal-400"
+                                            {{ !$isEditable ? 'disabled' : '' }}>
                                             <option value="">Pilih Pakan</option>
                                             @foreach($allPakan as $pakan)
-                                            <option value="{{ $pakan['id'] }}">{{ $pakan['nama_barang'] }}</option>
+                                            <option wire:key="pakan-opt-{{ $tanggal }}-{{ $idKandang }}-{{ $pakan['id'] }}"
+                                                value="{{ $pakan['id'] }}">
+                                                {{ $pakan['nama_barang'] }}
+                                            </option>
                                             @endforeach
                                         </select>
                                     </div>
