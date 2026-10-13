@@ -11,13 +11,17 @@ use Filament\Navigation\NavigationGroup;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
+use Filament\Support\Assets\Js;
 use Filament\Support\Colors\Color;
 use Filament\View\PanelsRenderHook;
+use Filament\Widgets\AccountWidget;
+use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Vite;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -25,212 +29,79 @@ class AdminPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         // ============================================================
-        // IDENTITAS (ubah sesuai kebutuhan)
+        // IDENTITAS
         // ============================================================
         $namaBrand = 'Telur';
-        $subjudul  = 'Pakan · Telur · Penjualan';
+        $subjudul  = 'Pakan · Telur · Akuntansi';
 
-        // Logo (opsional): public/images/logo-telur.(png|webp)
-        $logoFile = null;
-        foreach (['images/logo-telur.png', 'images/logo-telur.webp'] as $f) {
-            if (file_exists(public_path($f))) {
-                $logoFile = $f;
-                break;
+        $firstExisting = function (array $candidates) {
+            foreach ($candidates as $file) {
+                if (file_exists(public_path($file))) {
+                    return $file;
+                }
             }
-        }
+            return null;
+        };
+
+        // Logo: kalau ada public/images/logo-telur.png dipakai, kalau tidak pakai ikon telur + teks
+        $logoFile = $firstExisting(['images/logo-telur.png', 'images/logo-telur.webp']);
+
+        // Background foto kandang
+        $bgFile = $firstExisting([
+            'images/telur-bg.webp',
+            'images/telur-bg.jpg',
+            'images/telur-bg.jpeg',
+            'images/telur-bg.png',
+            'images/login-bg.webp',
+            'images/login-bg.jpg',
+            'images/login-bg.png',
+        ]);
+        $bgUrl = $bgFile ? asset($bgFile) . '?v=' . filemtime(public_path($bgFile)) : null;
+
+        $bgCss = 'background-color: #0f172a !important;'
+            . ($bgUrl
+                ? 'background-image:
+                        linear-gradient(135deg, rgba(15,23,42,0.74) 0%, rgba(15,23,42,0.42) 100%),
+                        url("' . $bgUrl . '") !important;'
+                : '')
+            . 'background-size: cover !important;
+               background-position: center !important;
+               background-repeat: no-repeat !important;
+               background-attachment: fixed !important;';
 
         // ------------------------------------------------------------
-        // LATAR: KONSEP DASHBOARD, WARNA ARANG
+        // CSS login (kaca gelap seperti Wijaya / Wahana)
         // ------------------------------------------------------------
-        $warna = [
-            '{{GLOW1}}' => '#f59e0b',
-            '{{GLOW2}}' => '#a3b18a',
-            '{{A}}'     => '#d97706',
-            '{{BAR}}'   => '#84a07c',
-            '{{VIG}}'   => '#fdfbf5',
-            '{{INK}}'   => '#1c1917',
-        ];
-
-        $defs = <<<'DEFS'
-<radialGradient id="gGlow1" cx="50%" cy="50%" r="50%">
-  <stop offset="0%" stop-color="{{GLOW1}}" stop-opacity=".30"/>
-  <stop offset="100%" stop-color="{{GLOW1}}" stop-opacity="0"/>
-</radialGradient>
-<radialGradient id="gGlow2" cx="50%" cy="50%" r="50%">
-  <stop offset="0%" stop-color="{{GLOW2}}" stop-opacity=".30"/>
-  <stop offset="100%" stop-color="{{GLOW2}}" stop-opacity="0"/>
-</radialGradient>
-<radialGradient id="gVig" cx="50%" cy="50%" r="75%">
-  <stop offset="52%" stop-color="{{VIG}}" stop-opacity="0"/>
-  <stop offset="100%" stop-color="{{VIG}}" stop-opacity=".65"/>
-</radialGradient>
-<linearGradient id="gArea" x1="0" x2="0" y1="0" y2="1">
-  <stop offset="0%"   stop-color="{{A}}" stop-opacity=".32"/>
-  <stop offset="100%" stop-color="{{A}}" stop-opacity="0"/>
-</linearGradient>
-<filter id="fB" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="2.2"/></filter>
-DEFS;
-
-        $isi = <<<'DASH'
-<circle cx="1300" cy="150" r="560" fill="url(#gGlow1)"/>
-<circle cx="200"  cy="780" r="600" fill="url(#gGlow2)"/>
-
-<g transform="translate(-90 -50) rotate(-2.5) scale(1.52)" filter="url(#fB)">
-  <rect width="1200" height="700" rx="22" fill="{{INK}}" fill-opacity=".05" stroke="{{INK}}" stroke-opacity=".14"/>
-  <rect width="210" height="700" rx="22" fill="{{INK}}" fill-opacity=".06"/>
-
-  <circle cx="46" cy="46" r="16" fill="{{A}}" fill-opacity=".7"/>
-  <rect x="74" y="38" width="90" height="16" rx="8" fill="{{INK}}" fill-opacity=".28"/>
-  <rect x="28" y="110" width="154" height="30" rx="10" fill="{{A}}" fill-opacity=".30"/>
-  <g fill="{{INK}}" fill-opacity=".16">
-    <rect x="48" y="118" width="110" height="12" rx="6" fill="{{A}}" fill-opacity=".55"/>
-    <rect x="48" y="180" width="110" height="12" rx="6"/>
-    <rect x="48" y="226" width="96"  height="12" rx="6"/>
-    <rect x="48" y="272" width="118" height="12" rx="6"/>
-    <rect x="48" y="318" width="90"  height="12" rx="6"/>
-    <rect x="48" y="364" width="104" height="12" rx="6"/>
-    <rect x="48" y="410" width="84"  height="12" rx="6"/>
-  </g>
-
-  <rect x="240" y="26" width="300" height="30" rx="15" fill="{{INK}}" fill-opacity=".09"/>
-  <circle cx="1146" cy="41" r="16" fill="{{INK}}" fill-opacity=".18"/>
-  <rect x="1040" y="34" width="70" height="14" rx="7" fill="{{INK}}" fill-opacity=".14"/>
-
-  <g fill="{{INK}}" fill-opacity=".07">
-    <rect x="240" y="96" width="220" height="110" rx="16"/>
-    <rect x="480" y="96" width="220" height="110" rx="16"/>
-    <rect x="720" y="96" width="220" height="110" rx="16"/>
-    <rect x="960" y="96" width="220" height="110" rx="16"/>
-  </g>
-  <g fill="{{INK}}" fill-opacity=".26">
-    <rect x="258" y="116" width="70" height="8" rx="4"/>
-    <rect x="498" y="116" width="70" height="8" rx="4"/>
-    <rect x="738" y="116" width="70" height="8" rx="4"/>
-    <rect x="978" y="116" width="70" height="8" rx="4"/>
-  </g>
-  <g fill="{{INK}}" fill-opacity=".42">
-    <rect x="258" y="140" width="120" height="22" rx="6" fill="{{A}}" fill-opacity=".55"/>
-    <rect x="498" y="140" width="110" height="22" rx="6"/>
-    <rect x="738" y="140" width="130" height="22" rx="6" fill="{{A}}" fill-opacity=".55"/>
-    <rect x="978" y="140" width="100" height="22" rx="6"/>
-  </g>
-  <g fill="none" stroke="{{BAR}}" stroke-opacity=".6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <polyline points="350,194 366,188 382,191 398,182 414,185 440,174"/>
-    <polyline points="590,192 606,186 622,189 638,180 654,184 680,176"/>
-    <polyline points="830,194 846,189 862,192 878,181 894,184 920,172"/>
-    <polyline points="1070,193 1086,187 1102,190 1118,181 1134,185 1160,175"/>
-  </g>
-
-  <rect x="240" y="230" width="600" height="270" rx="16" fill="{{INK}}" fill-opacity=".06"/>
-  <g stroke="{{INK}}" stroke-opacity=".08">
-    <line x1="264" y1="290" x2="816" y2="290"/>
-    <line x1="264" y1="350" x2="816" y2="350"/>
-    <line x1="264" y1="410" x2="816" y2="410"/>
-    <line x1="264" y1="470" x2="816" y2="470"/>
-  </g>
-  <path d="M264 450 C340 430 380 380 450 390 S560 320 620 330 S740 270 816 260 L816 480 L264 480 Z" fill="url(#gArea)"/>
-  <path d="M264 450 C340 430 380 380 450 390 S560 320 620 330 S740 270 816 260" fill="none" stroke="{{A}}" stroke-width="3" stroke-linecap="round"/>
-
-  <rect x="860" y="230" width="320" height="270" rx="16" fill="{{INK}}" fill-opacity=".06"/>
-  <g fill="{{BAR}}" fill-opacity=".45">
-    <rect x="884"  y="380" width="26" height="90"  rx="8"/>
-    <rect x="924"  y="330" width="26" height="140" rx="8"/>
-    <rect x="964"  y="360" width="26" height="110" rx="8"/>
-    <rect x="1004" y="300" width="26" height="170" rx="8"/>
-    <rect x="1044" y="340" width="26" height="130" rx="8"/>
-    <rect x="1084" y="280" width="26" height="190" rx="8"/>
-    <rect x="1124" y="320" width="26" height="150" rx="8" fill="{{A}}" fill-opacity=".55"/>
-  </g>
-
-  <rect x="240" y="524" width="940" height="150" rx="16" fill="{{INK}}" fill-opacity=".06"/>
-  <g stroke="{{INK}}" stroke-opacity=".08">
-    <line x1="264" y1="574" x2="1156" y2="574"/>
-    <line x1="264" y1="612" x2="1156" y2="612"/>
-    <line x1="264" y1="650" x2="1156" y2="650"/>
-  </g>
-  <g fill="{{INK}}" fill-opacity=".22">
-    <circle cx="276" cy="556" r="8"/><circle cx="276" cy="594" r="8"/><circle cx="276" cy="632" r="8"/>
-    <rect x="302" y="551" width="140" height="10" rx="5"/>
-    <rect x="302" y="589" width="120" height="10" rx="5"/>
-    <rect x="302" y="627" width="150" height="10" rx="5"/>
-    <rect x="560" y="551" width="100" height="10" rx="5" fill-opacity=".14"/>
-    <rect x="560" y="589" width="80"  height="10" rx="5" fill-opacity=".14"/>
-    <rect x="560" y="627" width="110" height="10" rx="5" fill-opacity=".14"/>
-    <rect x="780" y="551" width="100" height="10" rx="5" fill-opacity=".14"/>
-    <rect x="780" y="589" width="90"  height="10" rx="5" fill-opacity=".14"/>
-    <rect x="780" y="627" width="100" height="10" rx="5" fill-opacity=".14"/>
-    <rect x="1040" y="551" width="70" height="10" rx="5" fill="{{A}}" fill-opacity=".5"/>
-    <rect x="1040" y="589" width="70" height="10" rx="5"/>
-    <rect x="1040" y="627" width="70" height="10" rx="5"/>
-  </g>
-</g>
-
-<rect width="1600" height="900" fill="{{VIG}}" fill-opacity=".30"/>
-<rect width="1600" height="900" fill="url(#gVig)"/>
-DASH;
-
-        $svg = '<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><defs>'
-            . $defs . '</defs>' . $isi . '</svg>';
-        $bgHtml = '<div class="abs-bg" aria-hidden="true">' . strtr($svg, $warna) . '</div>';
-
-        // ------------------------------------------------------------
-        // CSS LOGIN (tema gelap, warna Arang)
-        // ------------------------------------------------------------
-        $css = <<<'CSS'
+        $css = <<<CSS
+/* ===== BACKGROUND ===== */
 .fi-simple-layout {
-    --bg: linear-gradient(135deg, #fdfbf5 0%, #f6f0e2 55%, #efe8d6 100%);
-    --card-bg: rgba(255,255,255,0.90);
-    --card-border: rgba(15,23,42,0.08);
-    --card-shadow: 0 30px 60px -22px rgba(120,90,30,0.30), inset 0 1px 0 rgba(255,255,255,0.9);
-    --text: #1c1917;
-    --muted: #78716c;
-    --input-bg: #faf8f3;
-    --input-ring: #d6d3d1;
-    --link: #b45309;
-    --link-hover: #92400e;
-    --icon: #78716c;
-    --check-bg: #ffffff;
-    --check-border: #a8a29e;
-    --error: #dc2626;
-    --logo-shadow: drop-shadow(0 2px 6px rgba(15,23,42,0.15));
-}
-
-/* ===== LATAR ===== */
-.fi-simple-layout {
-    background: var(--bg) !important;
+    {$bgCss}
     min-height: 100vh;
     min-height: 100dvh;
 }
-.abs-bg {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    overflow: hidden;
-}
-.abs-bg svg { width: 100%; height: 100%; display: block; }
-.fi-simple-main-ctn { position: relative; z-index: 1; }
 
-/* ===== CARD ===== */
+/* ===== CARD GLASS ===== */
 .fi-simple-main {
-    background: var(--card-bg) !important;
-    -webkit-backdrop-filter: blur(22px) saturate(150%);
-    backdrop-filter: blur(22px) saturate(150%);
-    border: 1px solid var(--card-border) !important;
-    border-radius: 1.6rem !important;
-    box-shadow: var(--card-shadow) !important;
+    background: rgba(15, 23, 42, 0.50) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 1.75rem !important;
+    box-shadow:
+        0 30px 60px -15px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.20) !important;
     --tw-ring-shadow: 0 0 #0000 !important;
     --tw-ring-color: transparent !important;
     padding-top: 2.5rem !important;
     padding-bottom: 2.5rem !important;
 }
 
-/* ===== LOGO / BRAND ===== */
+/* ===== BRAND ===== */
 .login-brand { display: flex; flex-direction: column; align-items: center; gap: .35rem; margin: 0 0 1rem 0; text-align: center; }
-.login-brand svg { width: 3.4rem; height: 4rem; filter: var(--logo-shadow); }
-.login-brand .nm { font-size: 1.7rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--text); line-height: 1; margin-top: .25rem; }
-.login-brand .sb { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
-.login-brand img { display: block; height: 5.5rem; width: auto; max-width: 85%; object-fit: contain; filter: var(--logo-shadow); }
+.login-brand svg { width: 3.4rem; height: 4rem; filter: drop-shadow(0 4px 12px rgba(0,0,0,.45)); }
+.login-brand .nm { font-size: 1.7rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #ffffff; line-height: 1; margin-top: .25rem; }
+.login-brand .sb { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.7); }
+.login-brand img { display: block; height: 5.5rem; width: auto; max-width: 85%; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,.45)); }
 .fi-simple-main .fi-logo { display: none !important; }
 
 /* Header */
@@ -248,42 +119,44 @@ DASH;
 .fi-simple-main label span,
 .fi-simple-main .fi-fo-field-wrp-label,
 .fi-simple-main .fi-fo-field-wrp-label span {
-    color: var(--text) !important;
+    color: #ffffff !important;
 }
 .fi-simple-main .fi-simple-header-subheading,
 .fi-simple-main .fi-simple-header-subheading span {
-    color: var(--muted) !important;
+    color: rgba(255, 255, 255, 0.75) !important;
 }
-.fi-simple-main a { color: var(--link) !important; }
-.fi-simple-main a:hover { color: var(--link-hover) !important; }
+.fi-simple-main a { color: #fbbf24 !important; }
+.fi-simple-main a:hover { color: #fde68a !important; }
 
 /* ===== INPUT ===== */
 .fi-simple-main .fi-input-wrp {
-    background-color: var(--input-bg) !important;
+    background-color: rgba(255, 255, 255, 0.12) !important;
     border-radius: 0.75rem !important;
-    box-shadow: inset 0 0 0 1px var(--input-ring) !important;
+    --tw-ring-color: rgba(255, 255, 255, 0.25) !important;
+    box-shadow: none !important;
     transition: all 0.2s ease;
 }
 .fi-simple-main .fi-input-wrp:focus-within {
-    box-shadow: inset 0 0 0 2px #f59e0b, 0 0 0 4px rgba(251, 191, 36, 0.25) !important;
+    background-color: rgba(255, 255, 255, 0.20) !important;
+    --tw-ring-color: #fbbf24 !important;
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.25) !important;
 }
 .fi-simple-main input.fi-input {
-    color: var(--text) !important;
-    -webkit-text-fill-color: var(--text) !important;
-    background: transparent !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
 }
-.fi-simple-main input.fi-input::placeholder { color: var(--muted) !important; }
+.fi-simple-main input.fi-input::placeholder { color: rgba(255, 255, 255, 0.5) !important; }
 .fi-simple-main input:-webkit-autofill {
-    -webkit-text-fill-color: var(--text) !important;
+    -webkit-text-fill-color: #ffffff !important;
     transition: background-color 9999s ease-in-out 0s;
 }
 .fi-simple-main .fi-input-wrp button,
-.fi-simple-main .fi-input-wrp svg { color: var(--icon) !important; }
+.fi-simple-main .fi-input-wrp svg { color: rgba(255, 255, 255, 0.8) !important; }
 
 /* ===== CHECKBOX ===== */
 .fi-simple-main input[type="checkbox"] {
-    background-color: var(--check-bg) !important;
-    border-color: var(--check-border) !important;
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
 }
 
 /* ===== TOMBOL ===== */
@@ -304,36 +177,28 @@ DASH;
 }
 
 /* ===== ERROR ===== */
-.fi-simple-main .fi-fo-field-wrp-error-message { color: var(--error) !important; }
+.fi-simple-main .fi-fo-field-wrp-error-message { color: #fca5a5 !important; }
 
-/* ===== RESPONSIVE (HP / layar sempit) ===== */
+/* ===== HP ===== */
 @media (max-width: 768px) {
     .fi-simple-layout { background-attachment: scroll !important; }
     .fi-simple-main-ctn { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
-    .fi-simple-main {
-        padding: 1.75rem 1.25rem !important;
-        border-radius: 1.4rem !important;
-    }
+    .fi-simple-main { padding: 1.75rem 1.25rem !important; border-radius: 1.4rem !important; }
     .login-brand svg { width: 2.9rem; height: 3.4rem; }
     .login-brand .nm { font-size: 1.45rem; }
     .login-brand img { height: 4.5rem; }
     .fi-simple-main .fi-simple-header-heading { font-size: 1.35rem !important; }
-    .fi-simple-main input.fi-input { font-size: 16px !important; }
-}
-@media (max-width: 380px) {
-    .fi-simple-main { padding: 1.5rem 1rem !important; }
 }
 CSS;
 
         // ------------------------------------------------------------
-        // JS: pindahkan brand ke atas "Sign in" + proses logo gambar
+        // JS: brand dipindah ke atas "Sign in" (+ proses logo bila pakai gambar)
         // ------------------------------------------------------------
         $js = <<<'JS'
 (function () {
     function processLogo(img) {
         if (!img || img.dataset.done) return;
         img.dataset.done = "1";
-        var rgb = (img.dataset.rgb || "255,255,255").split(",").map(Number);
         function run() {
             try {
                 var scale = Math.min(1, 800 / img.naturalWidth);
@@ -352,7 +217,7 @@ CSS;
                         var lum = p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114;
                         var a = Math.max(0, Math.min(255, (255 - lum) * 1.6));
                         a = a * (p[i + 3] / 255);
-                        p[i] = rgb[0]; p[i + 1] = rgb[1]; p[i + 2] = rgb[2]; p[i + 3] = a;
+                        p[i] = 255; p[i + 1] = 255; p[i + 2] = 255; p[i + 3] = a;
                         if (a > 40) {
                             if (x < minX) minX = x;
                             if (x > maxX) maxX = x;
@@ -390,8 +255,8 @@ CSS;
             if (target && target.parentNode && brand.nextElementSibling !== target) {
                 target.parentNode.insertBefore(brand, target);
             }
+            processLogo(brand.querySelector("img"));
         }
-        document.querySelectorAll("img[data-rgb]").forEach(processLogo);
     }
 
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
@@ -401,10 +266,10 @@ CSS;
 JS;
 
         // ------------------------------------------------------------
-        // HTML brand di dalam form (logo gambar kalau ada, kalau tidak ikon telur + teks)
+        // HTML brand
         // ------------------------------------------------------------
         if ($logoFile) {
-            $brandHtml = '<div class="login-brand"><img data-rgb="28,25,23" src="' . asset($logoFile) . '" alt="Logo ' . e($namaBrand) . '"></div>';
+            $brandHtml = '<div class="login-brand"><img src="' . asset($logoFile) . '" alt="Logo ' . e($namaBrand) . '"></div>';
         } else {
             $brandHtml = '<div class="login-brand">
                 <svg viewBox="-40 -46 80 98" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -455,16 +320,10 @@ JS;
                 FilamentShieldPlugin::make(),
             ])
 
-            // Brand (logo / ikon telur) di dalam form login
+            // Brand di dalam form login
             ->renderHook(
                 PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE,
                 fn (): string => $brandHtml
-            )
-
-            // Latar dashboard (hanya untuk tamu / halaman login)
-            ->renderHook(
-                PanelsRenderHook::BODY_START,
-                fn (): string => auth()->check() ? '' : $bgHtml
             )
 
             // Script
