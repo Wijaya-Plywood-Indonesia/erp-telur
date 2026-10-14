@@ -25,6 +25,7 @@ class ProduksiTelurExport implements WithEvents
         protected array $kandangTotals, // [$idKandang] = ['butir','kilo','tray']
         protected array $grandTotal,    // ['butir','kilo','tray']
         protected array $korektor,      // ['peti','kiloan','sisa','bentes','total']
+        protected array $info = [],     // ['penginput','validator','waktuValidasi','korektor','waktuKorektor']
     ) {}
 
     public function registerEvents(): array
@@ -264,6 +265,35 @@ class ProduksiTelurExport implements WithEvents
 
         $rowKorektorEnd = $rowSelisih; // dipakai untuk border di bawah
 
+        // ── Blok Informasi Penginput & Korektor ────────────
+        $val = fn (string $key) => ($this->info[$key] ?? '') !== '' ? $this->info[$key] : '-';
+
+        $rowInfoBanner = $rowSelisih + 2;
+        $sheet->setCellValue("A{$rowInfoBanner}", 'INFORMASI PENGINPUT & KOREKTOR');
+        $sheet->mergeCells("A{$rowInfoBanner}:D{$rowInfoBanner}");
+        $sheet->getStyle("A{$rowInfoBanner}:D{$rowInfoBanner}")
+            ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('1B1B1B');
+        $sheet->getStyle("A{$rowInfoBanner}:D{$rowInfoBanner}")
+            ->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+
+        $infoRows = [
+            ['Diinput oleh (Produksi)', $val('penginput')],
+            ['Korektor (Analisa)', $val('korektor') . ($val('waktuKorektor') !== '-' ? '  (' . $val('waktuKorektor') . ')' : '')],
+            ['Divalidasi oleh', $val('validator') . ($val('waktuValidasi') !== '-' ? '  (' . $val('waktuValidasi') . ')' : '')],
+        ];
+
+        $rowInfo = $rowInfoBanner + 1;
+        foreach ($infoRows as [$label, $nilai]) {
+            $sheet->setCellValue("A{$rowInfo}", $label);
+            $sheet->setCellValue("B{$rowInfo}", $nilai);
+            $sheet->mergeCells("B{$rowInfo}:D{$rowInfo}");
+            $sheet->getStyle("A{$rowInfo}")->getFont()->setBold(true);
+            $rowInfo++;
+        }
+        $rowInfoEnd = $rowInfo - 1;
+        $sheet->getStyle("A{$rowInfoBanner}:D{$rowInfoEnd}")
+            ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+
         // ── Border tabel utama & tabel korektor ───────────
         $sheet->getStyle("A{$rowGroup}:{$kolomTerakhir}{$rowTotal}")
             ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
@@ -273,5 +303,7 @@ class ProduksiTelurExport implements WithEvents
         for ($i = 1; $i <= $kolomTerakhirIx; $i++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i))->setWidth(14);
         }
+        // Kolom A dilebarkan agar label tidak terpotong
+        $sheet->getColumnDimension('A')->setWidth(26);
     }
 }

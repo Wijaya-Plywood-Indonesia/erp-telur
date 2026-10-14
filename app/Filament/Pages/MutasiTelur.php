@@ -307,6 +307,8 @@ class MutasiTelur extends Page
                 'validator'    => $p->validator?->name,
                 'keterangan'   => $p->keterangan,
                 'alasan_tolak' => $p->alasan_tolak,
+                'can_cetak'    => in_array($p->status, [PengajuanMutasiTelur::MENUNGGU, PengajuanMutasiTelur::TERVALIDASI]),
+                'url_cetak'    => route('mutasi-telur.cetak', $p->id),
                 'can_validasi' => $menunggu && (!$milikSendiri || $isSuper),
                 'can_edit'     => $menunggu && ($milikSendiri || $isSuper),
                 'can_batal'    => ($menunggu && ($milikSendiri || $isSuper))

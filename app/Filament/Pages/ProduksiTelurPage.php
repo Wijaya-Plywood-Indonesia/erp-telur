@@ -61,8 +61,56 @@ class ProduksiTelurPage extends Page
                                 'statusLabel'  => $this->statusKorektor['label'] ?? '-',
                                 'statusColor'  => $this->statusKorektor['color'] ?? 'success',
                             ],
+                            info: [
+                                'penginput'      => $this->namaPenyimpan,
+                                'validator'      => $this->namaValidator,
+                                'waktuValidasi'  => $this->waktuValidasi,
+                                'korektor'       => $this->namaKorektorPenyimpan,
+                                'waktuKorektor'  => $this->waktuKorektorUpdate,
+                            ],
                         ),
                         'Laporan-Produksi-Telur-' . $this->tanggal . '.xlsx'
+                    );
+                }),
+
+            Action::make('exportPdf')
+                ->label('Download PDF')
+                ->icon('heroicon-o-document-arrow-down')
+                ->color('danger')
+                ->visible(fn() => Auth::user()->hasAnyRole(['admin', 'super_admin']))
+                ->authorize(fn() => Auth::user()->hasAnyRole(['admin', 'super_admin']))
+                ->action(function () {
+                    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('filament.pages.laporan-produksi-telur-pdf', [
+                        'tanggal'       => $this->tanggal,
+                        'kandangs'      => $this->kandangs,
+                        'gridData'      => $this->gridData,
+                        'kandangPakan'  => $this->kandangPakan,
+                        'allPakan'      => $this->allPakan,
+                        'kandangTotals' => $this->kandangTotals,
+                        'grandTotal'    => $this->grandTotal,
+                        'korektor'      => [
+                            'peti'        => $this->korektorPeti,
+                            'kiloan'      => $this->korektorKiloan,
+                            'sisa'        => $this->korektorSisa,
+                            'bentes'      => $this->korektorBentes,
+                            'total'       => $this->korektorTotalKg,
+                            'dariKandang' => $this->grandTotal['kilo'],
+                            'selisih'     => $this->selisihKg,
+                            'statusLabel' => $this->statusKorektor['label'] ?? '-',
+                            'statusColor' => $this->statusKorektor['color'] ?? 'success',
+                        ],
+                        'info'          => [
+                            'penginput'     => $this->namaPenyimpan,
+                            'validator'     => $this->namaValidator,
+                            'waktuValidasi' => $this->waktuValidasi,
+                            'korektor'      => $this->namaKorektorPenyimpan,
+                            'waktuKorektor' => $this->waktuKorektorUpdate,
+                        ],
+                    ])->setPaper('a4', 'landscape');
+
+                    return response()->streamDownload(
+                        fn() => print($pdf->output()),
+                        'Laporan-Produksi-Telur-' . $this->tanggal . '.pdf'
                     );
                 }),
 
