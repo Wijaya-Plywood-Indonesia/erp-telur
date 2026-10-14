@@ -252,10 +252,10 @@ class PosPenjualan extends Page
 
     public function updateHargaJual(int $id): void
     {
+        // Harga jual terkunci: selalu kembalikan ke harga master. Perubahan harga lewat kolom potongan.
         if (!isset($this->cart[$id])) return;
 
-        $harga = max(0, (int) ($this->cart[$id]['harga_jual'] ?? 0));
-        $this->cart[$id]['harga_jual'] = $harga;
+        $this->cart[$id]['harga_jual'] = (int) ($this->cart[$id]['harga_awal'] ?? $this->cart[$id]['harga_jual']);
         $this->updateSubtotal($id);
         $this->calculateTotal();
     }
@@ -522,7 +522,7 @@ class PosPenjualan extends Page
                         'satuan' => $item['satuan'],
                         'qty' => $item['qty'],
                         'harga_awal' => $item['harga_awal'],
-                        'harga_jual' => $item['harga_jual'],
+                        'harga_jual' => $item['harga_awal'],
                         'potongan' => $item['potongan'],
                         'subtotal' => $item['subtotal'],
                     ]);
