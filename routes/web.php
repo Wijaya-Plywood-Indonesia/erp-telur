@@ -6,6 +6,7 @@ use App\Http\Controllers\NotaThermalController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SuratJalanController;
 use App\Http\Controllers\SuratJalanPrintController;
+use App\Http\Controllers\MutasiTelurPrintController;
 
 
 //
@@ -48,3 +49,6 @@ Route::get('/', function () {
 Route::get('/force-download-excel', [PenjualanExportController::class, 'download'])
     ->name('force.download');
 // ->middleware('auth:filament.admin');
+
+Route::get('/mutasi-telur/{pengajuan}/cetak', [MutasiTelurPrintController::class, 'print'])
+       ->name('mutasi-telur.cetak');

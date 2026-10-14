@@ -41,6 +41,14 @@
                         <td class="px-4 py-2">{{ $row['keterangan'] }}</td>
                         <td class="px-4 py-2">
                             <div class="flex items-center justify-end gap-2">
+                                @if ($row['can_cetak'])
+                                    <x-filament::button size="xs" color="gray" outlined tag="a"
+                                        href="{{ $row['url_cetak'] }}" target="_blank"
+                                        icon="heroicon-o-printer">
+                                        Cetak
+                                    </x-filament::button>
+                                @endif
+
                                 @if ($row['can_validasi'])
                                     <x-filament::button size="xs" color="success"
                                         wire:click="mountAction('validasi', { id: {{ $row['id'] }} })">

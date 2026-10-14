@@ -204,13 +204,7 @@
                                             }">
                                                 <input type="text"
                                                     :value="format(harga)"
-                                                    @input="
-                                                        let raw = $event.target.value.replace(/\D/g, '');
-                                                        harga = raw ? parseInt(raw) : 0;
-                                                        $el.value = format(harga);
-                                                    "
-                                                    @change="$wire.updateHargaJual({{ $id }})"
-                                                    class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md py-1 px-2 text-xs font-bold text-right focus:ring-2 focus:ring-primary-500/10" />
+                                                    readonly tabindex="-1" title="Harga jual tidak bisa diubah, gunakan kolom Potongan" class="w-full bg-gray-100 dark:bg-gray-800/60 cursor-not-allowed text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md py-1 px-2 text-xs font-bold text-right focus:ring-2 focus:ring-primary-500/10" />
                                             </td>
                                             <td class="px-2 py-2" x-data="{
                                                 potongan: @entangle('cart.'.$id.'.potongan'),
@@ -300,13 +294,7 @@
                                             <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">H. Jual</label>
                                             <input type="text"
                                                 :value="format(harga)"
-                                                @input="
-                                                    let raw = $event.target.value.replace(/\D/g, '');
-                                                    harga = raw ? parseInt(raw) : 0;
-                                                    $el.value = format(harga);
-                                                "
-                                                @change="$wire.updateHargaJual({{ $id }})"
-                                                class="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl py-2 px-3 text-sm font-black text-right focus:ring-2 focus:ring-primary-500/10 transition-all" />
+                                                readonly tabindex="-1" title="Harga jual tidak bisa diubah, gunakan kolom Potongan" class="w-full bg-gray-100 dark:bg-gray-800/60 cursor-not-allowed text-gray-500 dark:text-gray-400 border-none rounded-xl py-2 px-3 text-sm font-black text-right focus:ring-2 focus:ring-primary-500/10 transition-all" />
                                         </div>
                                         <div class="space-y-1" x-data="{
                                             potongan: @entangle('cart.'.$id.'.potongan'),
@@ -418,7 +406,10 @@
                             @if($metode_pembayaran === 'TUNAI & TRANSFER')
                                 <div wire:key="payment-split-fields" class="flex flex-wrap gap-3 mb-2">
                                     <div class="flex-1 min-w-[140px] space-y-1">
-                                        <label class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Tunai (Cash)</label>
+                                        <div class="flex justify-between items-center">
+                                            <label class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Tunai (Cash)</label>
+                                            <button type="button" @click="bayar_tunai = Math.max(0, total - (parseInt(bayar_transfer) || 0))" class="text-[9px] font-bold text-primary-600 hover:underline uppercase tracking-wide">Pas</button>
+                                        </div>
                                         <div class="flex items-center gap-1 border-b border-primary-500 pb-0.5">
                                             <span class="text-xs font-bold text-primary-600">Rp</span>
                                             <input 
@@ -434,7 +425,10 @@
                                         </div>
                                     </div>
                                     <div class="flex-1 min-w-[140px] space-y-1">
-                                        <label class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Transfer</label>
+                                        <div class="flex justify-between items-center">
+                                            <label class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Transfer</label>
+                                            <button type="button" @click="bayar_transfer = Math.max(0, total - (parseInt(bayar_tunai) || 0))" class="text-[9px] font-bold text-primary-600 hover:underline uppercase tracking-wide">Pas</button>
+                                        </div>
                                         <div class="flex items-center gap-1 border-b border-primary-500 pb-0.5">
                                             <span class="text-xs font-bold text-primary-600">Rp</span>
                                             <input 
@@ -454,6 +448,7 @@
                                 <div wire:key="payment-single-fields" class="space-y-1">
                                     <div class="flex justify-between items-center">
                                         <label class="text-[10px] font-bold text-gray-500 uppercase tracking-wide ml-1">Nominal Bayar</label>
+                                        <button type="button" @click="bayar = total" class="text-[9px] font-bold text-primary-600 hover:underline uppercase tracking-wide">Bayar Pas</button>
                                     </div>
                                     <div class="flex items-center gap-1.5 border-b border-primary-500 pb-0.5">
                                         <span class="text-lg font-bold text-primary-600">Rp</span>

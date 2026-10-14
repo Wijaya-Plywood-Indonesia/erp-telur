@@ -121,7 +121,7 @@ class JurnalPenjualanTelurService
                                 ? round(($kas['nominal'] - $sudahTersimpan) / (float) $d->qty, 4)
                                 : 0;
                         } else {
-                            $harga           = round((float) $d->harga_jual * $kas['proporsi'], 4);
+                            $harga           = round($this->hargaNeto($d) * $kas['proporsi'], 4);
                             $sudahTersimpan += round((float) $d->qty * $harga, 4);
                         }
 
@@ -172,7 +172,7 @@ class JurnalPenjualanTelurService
                             'no_referensi' => (string) $d->id,
                             'keterangan'   => $d->nama_barang . ' ' . $d->qty . ' ' . ($d->satuan ?? ''),
                             'banyak'       => $d->qty,
-                            'harga'        => $d->harga_jual,
+                            'harga'        => $this->hargaNeto($d),
                             'created_by'   => $userId,
                             'updated_by'   => $userId,
                         ]);
@@ -357,6 +357,8 @@ class JurnalPenjualanTelurService
                     $akunPend          = $this->resolveAkun($kodePend);
 
                     foreach ($barisKas as $kas) {
+                        // nominal kas khusus group ini (bukan total semua barang lain)
+                        $kas['nominal'] = round((float) $details->sum('subtotal') * $kas['proporsi'], 4);
                         $hKas = $this->buatHeader([
                             'no_jurnal_pembantu' => $this->nextNomorPembantu(),
                             'tgl_transaksi'      => $tgl,
@@ -382,7 +384,7 @@ class JurnalPenjualanTelurService
                                     ? round(($kas['nominal'] - $sudahTersimpan) / (float) $d->qty, 4)
                                     : 0;
                             } else {
-                                $harga           = round((float) $d->harga_jual * $kas['proporsi'], 4);
+                                $harga           = round($this->hargaNeto($d) * $kas['proporsi'], 4);
                                 $sudahTersimpan += round((float) $d->qty * $harga, 4);
                             }
 
@@ -427,7 +429,7 @@ class JurnalPenjualanTelurService
                             'no_referensi' => (string) $d->id,
                             'keterangan'   => $d->nama_barang . ' ' . $d->qty . ' ' . ($d->satuan ?? ''),
                             'banyak'       => $d->qty,
-                            'harga'        => $d->harga_jual,
+                            'harga'        => $this->hargaNeto($d),
                             'created_by'   => $userId,
                             'updated_by'   => $userId,
                         ]);
@@ -638,6 +640,13 @@ class JurnalPenjualanTelurService
     // ══════════════════════════════════════════════════════════════
     // HELPER
     // ══════════════════════════════════════════════════════════════
+
+    /** Harga per unit setelah potongan (= subtotal / qty), agar Pendapatan = Kas. */
+    private function hargaNeto($d): float
+    {
+        $qty = (float) $d->qty;
+        return $qty > 0 ? round((float) $d->subtotal / $qty, 4) : (float) $d->harga_jual;
+    }
 
     private function isTelur(string $namaLower): bool
     {
