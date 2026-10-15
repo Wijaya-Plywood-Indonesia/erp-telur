@@ -4,20 +4,21 @@ namespace App\Filament\Pages;
 
 use App\Models\SuratJalan;
 use App\Services\SuratJalanPenerimaanService;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Schemas\Schema;
 use Filament\Forms;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Contracts\HasForms;
-use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Notifications\Notification;
+use Filament\Pages\Concerns\InteractsWithFormActions;
 use Filament\Pages\Page;
 use Illuminate\Validation\ValidationException;
 use UnitEnum;
 
 class TerimaSuratJalan extends Page implements HasForms
 {
-    use InteractsWithForms;
+    use InteractsWithFormActions,  HasPageShield;
 
     public static ?string $navigationLabel = 'Terima Barang';
     protected static string|UnitEnum|null $navigationGroup = 'Stock Barang';

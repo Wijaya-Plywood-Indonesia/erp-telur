@@ -3,12 +3,14 @@
 namespace App\Filament\Pages;
 
 use App\Models\IndukAkun;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
 use UnitEnum;
 use Illuminate\Support\Collection;
 
 class ChartOfAccounts extends Page
 {
+    use HasPageShield;
     protected static ?string $navigationLabel = 'Chart of Accounts';
     protected static ?string $title = 'Chart of Accounts';
     protected static string|UnitEnum|null $navigationGroup = 'Akuntansi';
