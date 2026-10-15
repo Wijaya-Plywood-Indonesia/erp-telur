@@ -22,7 +22,14 @@ class UserForm
                 DateTimePicker::make('email_verified_at'),
                 TextInput::make('password')
                     ->password()
-                    ->required(),
+                    ->revealable()
+                    // wajib hanya saat membuat user baru
+                    ->required(fn (string $operation): bool => $operation === 'create')
+                    // saat edit: kosong = password lama tidak diubah (hash otomatis lewat cast di model User)
+                    ->dehydrated(fn (?string $state): bool => filled($state))
+                    ->helperText(fn (string $operation): ?string => $operation === 'edit'
+                        ? 'Kosongkan jika tidak ingin mengganti password.'
+                        : null),
                 Select::make('roles')
                     ->relationship('roles', 'name')
                     ->multiple()

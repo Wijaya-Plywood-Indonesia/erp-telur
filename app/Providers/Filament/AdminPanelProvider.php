@@ -2,7 +2,9 @@
 
 namespace App\Providers\Filament;
 
+use Filament\Enums\ThemeMode;
 use Filament\Http\Middleware\Authenticate;
+use App\Http\Middleware\RedirectDashboardAnalisis;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -288,6 +290,7 @@ JS;
             ->sidebarFullyCollapsibleOnDesktop()
             ->spa()
             ->id('admin')
+            ->defaultThemeMode(ThemeMode::Light)
             ->brandName($namaBrand)
             ->path('admin')
             ->login()
@@ -361,6 +364,7 @@ JS;
             ])
             ->authMiddleware([
                 Authenticate::class,
+                RedirectDashboardAnalisis::class,
             ]);
     }
 }
