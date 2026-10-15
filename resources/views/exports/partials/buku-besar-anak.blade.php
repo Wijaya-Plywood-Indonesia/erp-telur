@@ -1,108 +1,81 @@
 @php
 $kodeAkun   = $akun->kode_anak_akun ?? $akun->kode_sub_anak_akun;
 $namaAkun   = $akun->nama_anak_akun ?? $akun->nama_sub_anak_akun;
-$saldoAwal  = $export->getSaldoAwal($kodeAkun);
-$saldoAkhir = $export->getTotalRecursive($akun);
-$transaksis = $export->getTransaksiByKode($kodeAkun);
+$saldoAwal  = $this->getSaldoAwal($kodeAkun);
+$saldoAwalQty = $this->getSaldoAwalQty($kodeAkun); // null jika bukan akun persediaan satu barang
+$saldoAkhir = $this->getTotalRecursive($akun);
+$stokAkhir  = $this->getTotalRecursiveQty($akun); // null jika bukan/tidak punya akun persediaan di bawahnya
+$transaksis = $this->getTransaksiByKode($kodeAkun);
 $jumlahTrx  = $transaksis->count();
+$depth      = $depth ?? 0;
 
 $children = collect();
 if (isset($akun->children))     $children = $children->merge($akun->children);
 if (isset($akun->subAnakAkuns)) $children = $children->merge($akun->subAnakAkuns);
 
+// Tampilkan jika: ada transaksi ATAU ada saldo awal ATAU ada children yang punya data
 $tampilkan = ($jumlahTrx > 0) || ($saldoAwal != 0) || ($saldoAkhir != 0) || $children->count() > 0;
 
-$padding = str_repeat('&nbsp;&nbsp;', $depth);
+$saldoClass = $saldoAkhir < 0 ? 'neg' : '';
 @endphp
 
 @if($tampilkan)
-    <tr>
-        <td colspan="8" style="font-weight: bold;">
-            {!! $padding !!} {{ $kodeAkun }} - {{ $namaAkun }}
-        </td>
-        <td style="font-weight: bold; text-align: right;">
-            {{ $saldoAkhir }}
-        </td>
-    </tr>
 
+<style>
+.bb-anak { background:var(--bb-surface); border:1px solid var(--bb-border-soft); border-radius:var(--bb-r-md); overflow:hidden; box-shadow:var(--bb-shadow-sm); }
+.bb-anak-head { display:flex; align-items:center; justify-content:space-between; padding:.6rem 1rem; background:var(--bb-surface-3); border-bottom:1px solid var(--bb-border-soft); }
+.bb-anak-left { display:flex; align-items:center; gap:.5rem; }
+.bb-anak-dot { width:7px; height:7px; border-radius:50%; background:var(--bb-accent-mid); flex-shrink:0; }
+.bb-anak-code { font-family:'JetBrains Mono',monospace; font-size:.68rem; font-weight:500; color:var(--bb-text-3); background:var(--bb-surface-2); border:1px solid var(--bb-border); padding:2px 7px; border-radius:5px; }
+.bb-anak-name { font-size:.82rem; font-weight:700; color:var(--bb-text-1); }
+.bb-anak-saldo { font-family:'JetBrains Mono',monospace; font-size:.82rem; font-weight:600; color:var(--bb-text-2); }
+.bb-anak-saldo.neg { color:var(--bb-neg); }
+.bb-anak-stok { font-family:'JetBrains Mono',monospace; font-size:.68rem; font-weight:700; color:var(--bb-accent-text); background:var(--bb-accent-soft); border:1px solid var(--bb-accent-mid); padding:2px 8px; border-radius:20px; }
+.bb-anak-stok.neg { color:var(--bb-neg); background:transparent; border-color:var(--bb-neg); }
+.bb-sub-wrap { padding:.5rem 0 .5rem 1.25rem; border-left:2.5px solid var(--bb-border); margin:.5rem .75rem; display:flex; flex-direction:column; gap:.5rem; }
+</style>
+
+<div class="bb-anak">
+
+    {{-- Header akun --}}
+    <div class="bb-anak-head">
+        <div class="bb-anak-left">
+            <span class="bb-anak-dot" @if($depth > 0) style="background:var(--bb-amber-border)" @endif></span>
+            <span class="bb-anak-code">{{ $kodeAkun }}</span>
+            <span class="bb-anak-name">{{ $namaAkun }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:.6rem">
+            @if($stokAkhir != 0)
+            <span class="bb-anak-stok {{ $stokAkhir < 0 ? 'neg' : '' }}">
+                Stok: {{ (float)$stokAkhir == (int)$stokAkhir ? number_format(abs($stokAkhir), 0, ',', '.') : rtrim(rtrim(number_format(abs($stokAkhir), 4, ',', '.'), '0'), ',') }}
+            </span>
+            @endif
+            <span class="bb-anak-saldo {{ $saldoClass }}">
+                @if($saldoAkhir < 0)–@endif
+                Rp {{ number_format(abs($saldoAkhir), 0, ',', '.') }}
+            </span>
+        </div>
+    </div>
+
+    {{-- Children rekursif --}}
     @if($children->count())
+    <div class="bb-sub-wrap">
         @foreach($children as $child)
-            @include('exports.partials.buku-besar-anak', ['akun' => $child, 'depth' => $depth + 1])
+            @include('filament.pages.partials.buku-besar-anak', ['akun' => $child, 'depth' => $depth + 1])
         @endforeach
+    </div>
     @endif
 
+    {{-- Ledger table --}}
     @if($jumlahTrx > 0 || $saldoAwal != 0)
-        <tr>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px;">Tanggal</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px;">No.J</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px;">Nama</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px;">Keterangan</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px; text-align: right;">Qty</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px; text-align: right;">Harga</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px; text-align: right;">Debit</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px; text-align: right;">Kredit</th>
-            <th style="background-color: #c6e0b4; font-weight: bold; font-size: 10px; text-align: right;">Saldo</th>
-        </tr>
-        
-        <tr>
-            <td colspan="4" style="font-weight: bold; font-size: 10px;">Saldo Awal Periode</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td style="text-align: right; font-weight: bold; font-size: 10px;">{{ $saldoAwal }}</td>
-        </tr>
-        
-        @php
-            $saldoNormal = strtolower($akun->saldo_normal ?? 'debit');
-            $isKredit    = in_array($saldoNormal, ['kredit', 'credit', 'k']);
-            $running     = (float) $saldoAwal;
-            $totalDebit  = 0.0;
-            $totalKredit = 0.0;
-            $totalQty    = 0.0;
-        @endphp
-
-        @foreach($transaksis as $trx)
-            @php
-                $nominal = (float) ($trx->banyak ?? 1) * (float) ($trx->harga ?? 0);
-                $isDebit = in_array(strtolower($trx->map), ['d', 'debit']);
-                $qty     = (float) ($trx->banyak ?? 0);
-
-                if ($isKredit) {
-                    $running += $isDebit ? -$nominal : $nominal;
-                } else {
-                    $running += $isDebit ? $nominal : -$nominal;
-                }
-
-                if ($isDebit) {
-                    $totalDebit += $nominal;
-                    if ($trx->banyak !== null && $qty > 0) $totalQty += $qty;
-                } else {
-                    $totalKredit += $nominal;
-                    if ($trx->banyak !== null && $qty > 0) $totalQty -= $qty;
-                }
-            @endphp
-            <tr>
-                <td style="font-size: 10px;">{{ \Carbon\Carbon::parse($trx->tgl)->format('d/m/Y') }}</td>
-                <td style="font-size: 10px;">{{ $trx->jurnal }}</td>
-                <td style="font-size: 10px;">{{ $trx->nama }}</td>
-                <td style="font-size: 10px;">{{ $trx->keterangan }}</td>
-                <td style="text-align: right; font-size: 10px;">{{ $trx->banyak !== null && $qty > 0 ? $qty : '' }}</td>
-                <td style="text-align: right; font-size: 10px;">{{ $trx->harga !== null && (float)$trx->harga > 0 ? (float)$trx->harga : '' }}</td>
-                <td style="text-align: right; color: #1a6b3c; font-size: 10px;">{{ $isDebit ? $nominal : '' }}</td>
-                <td style="text-align: right; color: #b5303a; font-size: 10px;">{{ !$isDebit ? $nominal : '' }}</td>
-                <td style="text-align: right; font-size: 10px;">{{ $running }}</td>
-            </tr>
-        @endforeach
-        
-        <tr>
-            <td colspan="4" style="font-weight: bold; text-align: right; font-size: 10px;">Total Mutasi Bulan Ini</td>
-            <td style="font-weight: bold; text-align: right; font-size: 10px;">{{ $totalQty != 0 ? $totalQty : '' }}</td>
-            <td></td>
-            <td style="font-weight: bold; text-align: right; color: #1a6b3c; font-size: 10px;">{{ $totalDebit }}</td>
-            <td style="font-weight: bold; text-align: right; color: #b5303a; font-size: 10px;">{{ $totalKredit }}</td>
-            <td style="font-weight: bold; text-align: right; font-size: 10px;">{{ $running }}</td>
-        </tr>
-        <tr><td colspan="9"></td></tr>
+        @include('filament.pages.partials.ledger-table', [
+            'transaksis'   => $transaksis,
+            'saldoAwal'    => $saldoAwal,
+            'saldoAwalQty' => $saldoAwalQty,
+            'saldoNormal'  => strtolower($akun->saldo_normal ?? 'debit'),
+        ])
     @endif
+
+</div>
+
 @endif

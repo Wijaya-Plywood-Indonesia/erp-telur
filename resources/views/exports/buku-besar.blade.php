@@ -41,7 +41,7 @@
             </tr>
 
             @foreach($induk->anakAkuns->whereNull('parent') as $anak)
-                @include('exports.partials.buku-besar-anak', ['akun' => $anak, 'depth' => 0])
+                @include('exports.partials.buku-besar-anak-export', ['akun' => $anak, 'depth' => 0])
             @endforeach
         @endif
     @endforeach
