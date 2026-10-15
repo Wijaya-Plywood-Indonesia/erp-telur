@@ -453,7 +453,16 @@ class MutasiTelurService
             $barangTujuan = $this->wajibBarang($jenis, $tujuan);
             $akunTujuan   = $barangTujuan->subAnakAkun;
 
-            $harga = (float) ($barangRuko->harga_jual ?: $barangRuko->harga_beli ?: 0);
+            // Mutasi BUKAN penjualan: dinilai pada HPP (kolom HPP = harga_beli di Master Barang),
+            // bukan harga jual.
+            $harga = (float) ($barangRuko->harga_beli ?? 0);
+
+            if ($harga <= 0) {
+                throw new Exception(sprintf(
+                    'HPP %s belum diisi di Master Barang. Isi HPP terlebih dahulu sebelum mutasi.',
+                    $barangRuko->nama_barang
+                ));
+            }
 
             // Debet tujuan, Kredit Ruko (nilai sama agar balance)
             $lines[] = $this->line($akunTujuan, 'd', $qty, $harga);

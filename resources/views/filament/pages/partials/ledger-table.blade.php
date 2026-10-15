@@ -127,8 +127,8 @@ $saldoAkhirQty = $isPersediaan ? ($saldoAwalQty + $totalQty) : null;
         <tr>
             <th class="lgt-tgl">Tanggal</th>
             <th class="lgt-jurnal r">No.J</th>
-            <th class="lgt-nama">Nama</th>
-            <th class="lgt-ket">Keterangan</th>
+            <th class="lgt-nama" style="white-space:normal;">No. Bukti / Referensi</th>
+            <th class="lgt-ket">Uraian</th>
             <th class="lgt-qty r">Qty</th>
             <th class="lgt-harga r">Harga</th>
             <th class="lgt-debit r" style="color:var(--bb-debit)">Debit</th>
@@ -164,6 +164,17 @@ $saldoAkhirQty = $isPersediaan ? ($saldoAwalQty + $totalQty) : null;
 
         {{-- Baris transaksi --}}
         @forelse($rows as $row)
+        @php
+            // Buang segmen "| No.Nota: XXX" bila XXX sama dengan nomor di kolom Nama (hindari dobel)
+            $ketTampil = (string) ($row->trx->keterangan ?? '');
+            if (!empty($row->trx->nama)) {
+                $ketTampil = preg_replace(
+                    '/\s*\|\s*No\.Nota:\s*' . preg_quote($row->trx->nama, '/') . '(?=\s*(?:\||$))/i',
+                    '',
+                    $ketTampil
+                );
+            }
+        @endphp
         <tr>
             <td class="lgt-tgl">
                 {{ \Carbon\Carbon::parse($row->trx->tgl)->format('d/m/Y') }}
@@ -172,8 +183,8 @@ $saldoAkhirQty = $isPersediaan ? ($saldoAwalQty + $totalQty) : null;
             <td class="lgt-nama" title="{{ $row->trx->nama }}">
                 {{ $row->trx->nama ?? '—' }}
             </td>
-            <td class="lgt-ket" title="{{ $row->trx->keterangan }}">
-                {{ $row->trx->keterangan ?? '—' }}
+            <td class="lgt-ket" title="{{ $ketTampil }}">
+                {{ $ketTampil !== '' ? $ketTampil : '—' }}
             </td>
             <td class="lgt-qty r">
                 @if($row->trx->banyak !== null && (float)$row->trx->banyak > 0)
