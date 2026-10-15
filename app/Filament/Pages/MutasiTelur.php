@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\JurnalPembantuHeader;
 use App\Models\PengajuanMutasiTelur;
 use App\Services\MutasiTelurService;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Repeater;

@@ -589,13 +589,4 @@ class StockOpnamePage extends Page implements HasForms
         $this->refreshDaftarOpname();
         $this->refreshRiwayatOpname();
     }
-
-    /* =========================
-     |  PERMISSION
-     ========================= */
-
-    public static function canAccess(): bool
-    {
-        return auth()->user()?->hasAnyRole(['super_admin', 'admin']) ?? false;
-    }
 }
