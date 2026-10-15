@@ -23,6 +23,7 @@ use UnitEnum;
 
 class MutasiTelur extends Page
 {
+    use HasPageShield;
     protected static ?string $navigationLabel = 'Mutasi Telur';
     protected static ?string $title = 'Mutasi Telur Ruko ke Pabrik';
     protected static UnitEnum|string|null $navigationGroup = 'Stock Barang';
