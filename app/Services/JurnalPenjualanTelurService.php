@@ -336,6 +336,16 @@ class JurnalPenjualanTelurService
                     ]);
                 }
                 */
+
+                // ── Jurnal Peti (khusus telur PETIAN) ────────────────────────────────
+                // D: Peti Kosong bertambah | K: Peti Isi Telur berkurang
+                $jumlahPetiPetian = (float) $itemTelur
+                    ->filter(fn($d) => str_contains(strtolower($d->nama_barang ?? ''), 'petian'))
+                    ->sum('qty');
+
+                if ($jumlahPetiPetian > 0) {
+                    $this->buatJurnalPeti($noJurnal, $tgl, $nota, $customer, $jumlahPetiPetian, $userId);
+                }
             }
 
             // ════════════════════════════════════════════════════════
@@ -598,6 +608,60 @@ class JurnalPenjualanTelurService
     // ══════════════════════════════════════════════════════════════
     // RESOLVER AKUN
     // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Jurnal peti penjualan petian:
+     *   D Peti Kosong (1600-01) | K Peti Isi Telur (1600-02)
+     * Kedua baris memakai harga (HPP) yang SAMA agar selalu balance.
+     */
+    private function buatJurnalPeti(int $noJurnal, string $tgl, string $nota, string $customer, float $jumlahPeti, int $userId): void
+    {
+        $brgKosong = Barang::with('subAnakAkun')->where('nama_barang', 'like', '%peti%kosong%')->first();
+        $brgIsi    = Barang::with('subAnakAkun')->where('nama_barang', 'like', '%peti%isi%telur%')->first();
+
+        $hpp = (float) ($brgKosong?->harga_beli ?? 0);
+        if ($hpp <= 0) {
+            $hpp = 6000; // fallback jika HPP peti kosong belum diisi
+        }
+
+        $akunKosong = $this->resolveAkun($brgKosong?->subAnakAkun?->kode_sub_anak_akun ?? '1600-01');
+        $akunIsi    = $this->resolveAkun($brgIsi?->subAnakAkun?->kode_sub_anak_akun ?? '1600-02');
+        $ket        = $this->ket('Konversi Peti Telur', $nota, $customer);
+
+        $baris = [
+            ['map' => 'd', 'akun' => $akunKosong, 'nama' => $brgKosong?->nama_barang ?? 'Peti Kosong',
+             'ket' => "Masuk stok peti kosong {$jumlahPeti} pcs (Penjualan petian)"],
+            ['map' => 'k', 'akun' => $akunIsi, 'nama' => $brgIsi?->nama_barang ?? 'Peti Isi Telur',
+             'ket' => "Keluar stok peti isi telur {$jumlahPeti} pcs (Penjualan petian)"],
+        ];
+
+        foreach ($baris as $b) {
+            $h = $this->buatHeader([
+                'no_jurnal_pembantu' => $this->nextNomorPembantu(),
+                'tgl_transaksi'      => $tgl,
+                'jenis_transaksi'    => 'bk',
+                'modul_asal'         => 'penjualan_telur',
+                'jurnal'             => $noJurnal,
+                'no_akun'            => $b['akun']['kode'],
+                'nama_akun'          => $b['akun']['nama'],
+                'map'                => $b['map'],
+                'keterangan'         => $ket,
+                'no_dokumen'         => $nota,
+                'dibuat_oleh'        => $userId,
+            ]);
+
+            $this->buatItem($h->id, [
+                'urut'        => 1,
+                'nama_barang' => $b['nama'],
+                'no_dokumen'  => $nota,
+                'keterangan'  => $b['ket'],
+                'banyak'      => $jumlahPeti,
+                'harga'       => $hpp,
+                'created_by'  => $userId,
+                'updated_by'  => $userId,
+            ]);
+        }
+    }
 
     private function resolveAkun(string $kode): array
     {
