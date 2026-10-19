@@ -86,6 +86,17 @@ class ProduksiTelurService
                 'harga'       => self::NILAI_HUTANG_GAJI,
             ]);
 
+            // 7c. Jurnal Peti (khusus telur PETIAN): D Peti Isi Telur | K Peti Kosong
+            $qtyPeti = 0.0;
+            foreach ($telurItems as $item) {
+                if ($item['kode'] === '1411-00') {
+                    $qtyPeti = (float) $item['qty'];
+                }
+            }
+            if ($qtyPeti > 0) {
+                $this->buatJurnalPeti($nextJurnal, $tgl, $nota, $ket, $qtyPeti, $userId);
+            }
+
             // 8. Record selisih penyeimbang (Kredit jika lebih, Debet jika kurang)
             if (abs($selisih) > 0.001) {
                 $mapSelisih      = $selisih > 0 ? 'k' : 'd';
@@ -240,6 +251,44 @@ class ProduksiTelurService
         }
 
         return $grouped;
+    }
+
+    /**
+     * Jurnal peti produksi petian:
+     *   D Peti Isi Telur (1600-02) | K Peti Kosong (1600-01)
+     * Kedua baris memakai harga (HPP) yang SAMA, jadi tidak mengubah balance jurnal.
+     */
+    private function buatJurnalPeti(int $nextJurnal, string $tgl, string $nota, string $ket, float $qty, int $userId): void
+    {
+        $brgKosong = Barang::with('subAnakAkun')->where('nama_barang', 'like', '%peti%kosong%')->first();
+        $brgIsi    = Barang::with('subAnakAkun')->where('nama_barang', 'like', '%peti%isi%telur%')->first();
+
+        $hpp = (float) ($brgKosong?->harga_beli ?? 0);
+        if ($hpp <= 0) {
+            $hpp = 6000; // fallback jika HPP peti kosong belum diisi
+        }
+
+        $kodeKosong = $brgKosong?->subAnakAkun?->kode_sub_anak_akun ?? '1600-01';
+        $kodeIsi    = $brgIsi?->subAnakAkun?->kode_sub_anak_akun ?? '1600-02';
+
+        $namaKosong = SubAnakAkun::where('kode_sub_anak_akun', $kodeKosong)->value('nama_sub_anak_akun') ?? 'Peti Kosong';
+        $namaIsi    = SubAnakAkun::where('kode_sub_anak_akun', $kodeIsi)->value('nama_sub_anak_akun') ?? 'Peti Isi Telur';
+
+        // D: Peti Isi Telur bertambah
+        $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, $kodeIsi, $namaIsi, 'd', $userId, [
+            'nama_barang' => $brgIsi?->nama_barang ?? 'Peti Isi Telur',
+            'keterangan'  => "Masuk stok peti isi telur {$qty} peti (Produksi petian)",
+            'banyak'      => $qty,
+            'harga'       => $hpp,
+        ]);
+
+        // K: Peti Kosong berkurang
+        $this->createJurnalEntry($nextJurnal, $tgl, $nota, $ket, $kodeKosong, $namaKosong, 'k', $userId, [
+            'nama_barang' => $brgKosong?->nama_barang ?? 'Peti Kosong',
+            'keterangan'  => "Keluar stok peti kosong {$qty} peti (Produksi petian)",
+            'banyak'      => $qty,
+            'harga'       => $hpp,
+        ]);
     }
 
     /**
