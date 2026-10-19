@@ -38,8 +38,7 @@ class ProduksiTelurService
             $totalDebetTelur = array_sum(array_column($telurItems, 'total'));
 
             if ($totalDebetTelur <= 0) {
-                Log::info("[ProduksiTelurService] Total nilai telur 0, pembuatan jurnal dilewati. Nota: {$nota}");
-                return;
+                throw new Exception('Total nilai telur 0 (cek korektor dan harga jual barang), jurnal tidak dapat dibuat.');
             }
 
             // 3. Siapkan data pemakaian pakan dari kandang (Kredit)

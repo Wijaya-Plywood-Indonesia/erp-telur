@@ -818,16 +818,22 @@ class ProduksiTelurPage extends Page
 
         try {
             DB::transaction(function () use ($produksi) {
-                app(\App\Services\ProduksiTelurService::class)->bersihkanJurnalSebelumnya($produksi);
-
-                $produksi->is_validated = false;
-                $produksi->validated_by = null;
-                $produksi->validated_at = null;
-                $produksi->save();
+                // 1. Tandai tervalidasi
+                if (method_exists($produksi, 'validate')) {
+                    $produksi->validate();
+                } else {
+                    $produksi->update([
+                        'is_validated' => true,
+                        'validated_by' => Auth::user()->name,
+                        'validated_at' => now(),
+                    ]);
+                }
+                app(\App\Services\ProduksiTelurService::class)
+                    ->buatJurnalDariProduksi($produksi, Auth::id());
             });
         } catch (\Exception $e) {
             Notification::make()
-                ->title('Tidak bisa membatalkan validasi')
+                ->title('Gagal Memvalidasi Data')
                 ->body($e->getMessage())
                 ->danger()
                 ->persistent()
@@ -835,7 +841,6 @@ class ProduksiTelurPage extends Page
             return;
         }
 
-        $this->is_validated = true;
         $this->loadExistingDataByTanggal();
 
         Notification::make()
@@ -872,21 +877,35 @@ class ProduksiTelurPage extends Page
             return;
         }
 
-        DB::transaction(function () use ($produksi, $scope) {
-            $produksi->is_validated = false;
-            $produksi->validated_by = null;
-            $produksi->validated_at = null;
+        try {
+            DB::transaction(function () use ($produksi, $scope) {
+                // Tolak kalau ada jurnal diposting yang belum dibalik,
+                // dan hapus jurnal draft kalau ada.
+                app(\App\Services\ProduksiTelurService::class)->bersihkanJurnalSebelumnya($produksi);
 
-            if (in_array($scope, ['produksi', 'semua'], true)) {
-                $produksi->is_locked = false;
-            }
-            $produksi->save();
+                $produksi->is_validated = false;
+                $produksi->validated_by = null;
+                $produksi->validated_at = null;
 
-            if (in_array($scope, ['korektor', 'semua'], true)) {
-                ProduksiTelurKorektor::where('id_produksi_telur', $produksi->id)
-                    ->update(['is_locked' => false]);
-            }
-        });
+                if (in_array($scope, ['produksi', 'semua'], true)) {
+                    $produksi->is_locked = false;
+                }
+                $produksi->save();
+
+                if (in_array($scope, ['korektor', 'semua'], true)) {
+                    ProduksiTelurKorektor::where('id_produksi_telur', $produksi->id)
+                        ->update(['is_locked' => false]);
+                }
+            });
+        } catch (\Exception $e) {
+            Notification::make()
+                ->title('Tidak bisa membuka data')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+            return;
+        }
 
         $label = match ($scope) {
             'produksi' => 'Produksi Telur',
@@ -938,15 +957,24 @@ class ProduksiTelurPage extends Page
             return;
         }
 
-        DB::transaction(function () use ($produksi) {
-            // Hanya reset status validasi — is_locked (produksi) dan
-            // is_locked (korektor) SENGAJA tidak diubah, agar data tetap
-            // terkunci dari pengeditan biasa.
-            $produksi->is_validated = false;
-            $produksi->validated_by = null;
-            $produksi->validated_at = null;
-            $produksi->save();
-        });
+        try {
+            DB::transaction(function () use ($produksi) {
+                app(\App\Services\ProduksiTelurService::class)->bersihkanJurnalSebelumnya($produksi);
+
+                $produksi->is_validated = false;
+                $produksi->validated_by = null;
+                $produksi->validated_at = null;
+                $produksi->save();
+            });
+        } catch (\Exception $e) {
+            Notification::make()
+                ->title('Tidak bisa membatalkan validasi')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+            return;
+        }
 
         Notification::make()
             ->title('Validasi Dibatalkan')
