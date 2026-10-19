@@ -15,6 +15,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 use Maatwebsite\Excel\Facades\Excel;
 use UnitEnum;
@@ -322,6 +323,8 @@ class ProduksiTelurPage extends Page
         }
 
         $userId = Auth::id();
+
+        Log::info('DEBUG kandangPakan', $this->kandangPakan);
 
         DB::transaction(function () use ($userId) {
             $existing = ProduksiTelur::whereDate('tanggal', $this->tanggal)
@@ -815,23 +818,16 @@ class ProduksiTelurPage extends Page
 
         try {
             DB::transaction(function () use ($produksi) {
-                if (method_exists($produksi, 'validate')) {
-                    $produksi->validate();
-                } else {
-                    $this->validate(['tanggal' => 'required|date']);
-                    $produksi->update([
-                        'is_validated' => true,
-                        'validated_by' => Auth::user()->name,
-                        'validated_at' => now(),
-                    ]);
-                }
+                app(\App\Services\ProduksiTelurService::class)->bersihkanJurnalSebelumnya($produksi);
 
-                app(\App\Services\ProduksiTelurService::class)
-                    ->buatJurnalDariProduksi($produksi, Auth::id());
+                $produksi->is_validated = false;
+                $produksi->validated_by = null;
+                $produksi->validated_at = null;
+                $produksi->save();
             });
         } catch (\Exception $e) {
             Notification::make()
-                ->title('Gagal Memvalidasi Data')
+                ->title('Tidak bisa membatalkan validasi')
                 ->body($e->getMessage())
                 ->danger()
                 ->persistent()

@@ -30,8 +30,9 @@ class ProduksiTelurService
 
         DB::transaction(function () use ($produksi, $userId, $tgl, $nota, $ket) {
             // 1. Bersihkan draft jurnal lama jika ada
-            $this->hapusJurnalLama($nota);
-
+            $this->bersihkanJurnalSebelumnya($produksi);
+            // 1b. Nota baru, dibuat SETELAH draft dibersihkan
+            $nota = $this->buatNotaBaru($produksi);
             // 2. Siapkan data telur hasil korektor (Debet)
             $telurItems = $this->prepareTelurItems($produksi);
             $totalDebetTelur = array_sum(array_column($telurItems, 'total'));
@@ -103,31 +104,62 @@ class ProduksiTelurService
         });
     }
 
-    /**
-     * Hapus jurnal lama (draft) untuk re-validasi.
-     */
-    public function hapusJurnalLama(string $nota): void
+    /** Awalan nota untuk satu produksi, contoh: PRODTELUR-12-2026-10-18 */
+    private function prefixNota(ProduksiTelur $produksi): string
     {
-        $isPosted = JurnalPembantuHeader::where('modul_asal', 'produksi_telur')
-            ->where('no_dokumen', $nota)
+        return "PRODTELUR-{$produksi->id}-{$produksi->tanggal->toDateString()}";
+    }
+
+    /** Query dasar: semua jurnal ASLI (bukan jurnal balik) milik produksi ini. */
+    private function queryJurnalAsli(ProduksiTelur $produksi)
+    {
+        return JurnalPembantuHeader::where('modul_asal', 'produksi_telur')
+            ->where('no_dokumen', 'like', $this->prefixNota($produksi) . '%')
+            ->where(function ($q) {
+                $q->where('adalah_jurnal_balik', false)
+                    ->orWhereNull('adalah_jurnal_balik');
+            });
+    }
+
+    /**
+     * Dipanggil sebelum batal validasi, bukaKunci, dan validasi ulang.
+     * - Menolak kalau ada jurnal diposting yang BELUM dibalik.
+     * - Menghapus jurnal draft saja. Jurnal posting dan jurnal balik tidak disentuh.
+     */
+    public function bersihkanJurnalSebelumnya(ProduksiTelur $produksi): void
+    {
+        $belumDibalik = $this->queryJurnalAsli($produksi)
             ->where('status', JurnalPembantuHeader::STATUS_DIPOSTING)
+            ->whereDoesntHave('jurnalBalik', function ($q) {
+                $q->where('status', '!=', JurnalPembantuHeader::STATUS_DIBATALKAN);
+            })
             ->exists();
 
-        if ($isPosted) {
-            throw new Exception("Jurnal produksi ini sudah diposting ke Buku Besar. Batalkan posting terlebih dahulu!");
+        if ($belumDibalik) {
+            throw new Exception(
+                'Jurnal produksi ini sudah diposting ke Buku Besar. ' .
+                    'Buat Jurnal Balik terlebih dahulu (tidak perlu menunggu jurnal balik diposting).'
+            );
         }
 
-        $headers = JurnalPembantuHeader::where('modul_asal', 'produksi_telur')
-            ->where('no_dokumen', $nota)
+        $drafts = $this->queryJurnalAsli($produksi)
+            ->where('status', JurnalPembantuHeader::STATUS_DRAFT)
             ->get();
 
-        foreach ($headers as $header) {
+        foreach ($drafts as $header) {
             $header->items()->delete();
             $header->delete();
         }
     }
 
-    // ─── PRIVATE HELPER METHODS ──────────────────────────────────────────────
+    /** Nota baru: pertama tanpa akhiran, berikutnya -R1, -R2, dst. */
+    private function buatNotaBaru(ProduksiTelur $produksi): string
+    {
+        $prefix = $this->prefixNota($produksi);
+        $jumlah = $this->queryJurnalAsli($produksi)->distinct()->count('no_dokumen');
+
+        return $jumlah > 0 ? "{$prefix}-R{$jumlah}" : $prefix;
+    }
 
     /**
      * Menyusun item telur berdasarkan hasil penimbangan korektor.
