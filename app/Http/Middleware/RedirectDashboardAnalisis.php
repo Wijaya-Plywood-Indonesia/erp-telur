@@ -8,9 +8,11 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * User ber-role dashboard_analisis yang membuka halaman dashboard utama panel
- * (/admin, termasuk setelah login) langsung dialihkan ke Analisis Telur.
- * User lain tidak terpengaruh.
+ * User ber-role dashboard_analisis diarahkan ke Analisis Telur HANYA sekali,
+ * yaitu tepat setelah login (flag session 'landing_analisis' diset oleh
+ * listener Login di AppServiceProvider).
+ *
+ * Setelah itu menu "Dashboard" di sidebar bisa dibuka seperti biasa.
  */
 class RedirectDashboardAnalisis
 {
@@ -22,10 +24,17 @@ class RedirectDashboardAnalisis
             $user
             && $request->isMethod('GET')
             && ! $request->header('X-Livewire')
-            && ($request->is('admin') || $request->routeIs('filament.admin.pages.dashboard'))
-            && $user->hasRole(AnalisisTelur::ROLE)
         ) {
-            return redirect()->to(AnalisisTelur::getUrl());
+            // flag sekali pakai: dikonsumsi pada request halaman pertama setelah login
+            $landing = $request->session()->pull('landing_analisis', false);
+
+            if (
+                $landing
+                && ($request->is('admin') || $request->routeIs('filament.admin.pages.dashboard'))
+                && $user->hasRole(AnalisisTelur::ROLE)
+            ) {
+                return redirect()->to(AnalisisTelur::getUrl());
+            }
         }
 
         return $next($request);
