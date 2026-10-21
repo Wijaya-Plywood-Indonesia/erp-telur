@@ -204,9 +204,10 @@
             @endif
 
             <!-- ===== FOOTER ===== -->
-            <div  class="text-center small">
-                TERIMA KASIH<br />
-                Kasir : {{ $penjualan->user->name }}
+            <div class="text-center small">
+                <div style="font-size: 10px; font-weight: 800;">Terima Kasih Atas Kunjungan Anda</div>
+                <div style="font-size: 10px; font-weight: 700;">Kritik &amp; Saran : 083846941680</div>
+                <div style="margin-top: 3px;">Kasir : {{ $penjualan->user->name }}</div>
             </div>
         </div>
     </body>

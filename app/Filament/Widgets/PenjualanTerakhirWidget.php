@@ -107,7 +107,18 @@ class PenjualanTerakhirWidget extends TableWidget
                 //         ]);
                 //     }),
 
-                //
+                // 🟢 CETAK THERMAL — langsung muncul sejak penjualan dibuat (tanpa menunggu validasi)
+                Action::make('cetakThermal')
+                    ->label('Cetak Thermal')
+                    ->icon('heroicon-o-printer')
+                    ->color('success') // 🟢 Hijau
+                    ->url(fn($record) => route('nota.cetakThermal', $record))
+                    ->openUrlInNewTab()
+                    ->visible(
+                        fn($record) => $record->status_transaksi !== 'DIBATALKAN'
+                    ),
+
+                // 🔵 CETAK NOTA — hanya setelah divalidasi
                 Action::make('cetak')
                     ->label('Cetak Nota')
                     ->icon('heroicon-o-printer')
@@ -124,22 +135,7 @@ class PenjualanTerakhirWidget extends TableWidget
                         ])
                     ),
 
-                Action::make('cetakThermal')
-                    ->label('Cetak Thermal')
-                    ->icon('heroicon-o-printer')
-                    ->color('success') // 🟢 Hijau
-                    ->url(fn($record) => route('nota.cetakThermal', $record))
-                    ->openUrlInNewTab()
-                    ->visible(
-                        fn($record) =>
-                        !empty($record->validated_by)
-                        && !in_array($record->status_transaksi, [
-                            'DIBATALKAN',
-                            'BELUM DIBAYAR',
-                            'PENDING',
-                        ])
-                    ),
-
+                // 🟠 CETAK SURAT JALAN — hanya setelah divalidasi
                 Action::make('suratJalan')
                     ->label('Cetak Surat Jalan')
                     ->icon('heroicon-o-truck')
