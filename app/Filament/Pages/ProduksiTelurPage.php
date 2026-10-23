@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Livewire\Attributes\Locked;
 use Maatwebsite\Excel\Facades\Excel;
 use UnitEnum;
 
@@ -115,16 +116,20 @@ class ProduksiTelurPage extends Page
                     );
                 }),
 
-            // ✅ BARU: Super Admin bisa membuka kembali bagian yang sudah terkunci.
-            // Ini otomatis membatalkan validasi (karena validasi adalah kunci tertinggi),
-            // lalu membuka kunci sesuai scope yang dipilih.
+            // Super Admin / Admin bisa membuka data hanya jika belum divalidasi.
             Action::make('bukaKunci')
                 ->label('Buka Data')
                 ->icon('heroicon-o-lock-open')
                 ->color('warning')
-                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                ->visible(
+                    fn() => ($this->isSuperAdmin || $this->isAdmin)
+                        && ($this->isProduksiLocked || $this->isKorektorLocked)
+                        && ! $this->is_validated
+                )
                 ->modalHeading('Buka Data Produksi Telur')
-                ->modalDescription('Validasi akan dibatalkan dan bagian yang dipilih bisa diedit ulang.')
+                ->modalDescription(
+                    'Bagian yang dipilih akan dibuka agar bisa diedit kembali.'
+                )
                 ->form([
                     DatePicker::make('tanggal')
                         ->label('Tanggal Data')
@@ -147,14 +152,22 @@ class ProduksiTelurPage extends Page
                     $this->bukaKunci($data['tanggal'], $data['scope']);
                 }),
 
+            // Muncul hanya setelah data sudah divalidasi.
             Action::make('batalValidasi')
                 ->label('Batal Validasi')
                 ->icon('heroicon-o-arrow-uturn-left')
                 ->color('danger')
-                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                ->visible(
+                    fn() => ($this->isSuperAdmin || $this->isAdmin)
+                        && $this->is_validated
+                )
                 ->requiresConfirmation()
                 ->modalHeading('Batalkan Validasi Produksi Telur')
-                ->modalDescription('Status validasi akan direset ke belum tervalidasi. Data produksi & korektor TETAP terkunci (tidak bisa diedit) — hanya status validasinya yang dibatalkan agar bisa divalidasi ulang (misalnya untuk regenerasi jurnal pembantu).')
+                ->modalDescription(
+                    'Status validasi akan direset menjadi belum tervalidasi. ' .
+                        'Data produksi dan korektor tetap terkunci. ' .
+                        'Hanya status validasi yang dibatalkan.'
+                )
                 ->modalSubmitActionLabel('Ya, Batalkan Validasi')
                 ->form([
                     DatePicker::make('tanggal')
@@ -168,14 +181,22 @@ class ProduksiTelurPage extends Page
                     $this->batalkanValidasi($data['tanggal']);
                 }),
 
+            // Muncul hanya jika data memenuhi syarat validasi dan belum divalidasi.
             Action::make('validateProduksiGlobal')
                 ->label('Validasi Data')
                 ->icon('heroicon-o-check-badge')
                 ->color('success')
-                ->visible(fn() => $this->showValidateButton)
+                ->visible(
+                    fn() =>
+                    $this->showValidateButton
+                        && ! $this->is_validated
+                )
                 ->requiresConfirmation()
                 ->modalHeading('Validasi Data Produksi Telur')
-                ->modalDescription('Data yang sudah divalidasi tidak dapat diubah kecuali oleh Super Admin. Pastikan Produksi Telur dan Analisa Korektor sudah benar.')
+                ->modalDescription(
+                    'Data yang sudah divalidasi tidak dapat diubah kecuali oleh ' .
+                        'Super Admin. Pastikan Produksi Telur dan Analisa Korektor sudah benar.'
+                )
                 ->modalSubmitActionLabel('Ya, Validasi')
                 ->action(fn() => $this->validateProduksi()),
         ];
@@ -185,9 +206,7 @@ class ProduksiTelurPage extends Page
 
     public string $tanggal = '';
     protected string $tanggalSebelumnya = '';
-    public bool $is_validated = false;
     public bool $isEditable = true;
-    public ?int $produksiTelurId = null;
 
     public string $namaUserLogin    = '';  // nama user yang sedang login
     public string $namaPenyimpan    = '';  // nama user yang menyimpan data produksi (grid)
@@ -210,6 +229,11 @@ class ProduksiTelurPage extends Page
     public ?float $korektorSisa     = null;
     public ?float $korektorBentes   = null;
     public ?string $korektorCatatan = null;
+
+    public bool $produksiDiperbaiki = false;
+    public bool $korektorDiperbaiki = false;
+
+    public string $waktuPenyimpanan = '';
 
     public float $korektorTotalKg = 0.0;
     public float $selisihKg       = 0.0;
@@ -236,16 +260,23 @@ class ProduksiTelurPage extends Page
 
     // ─── Status & Izin Pengeditan ─────────────────────────────
 
-    public bool $isSuperAdmin = false;
-    public bool $isAdmin = false;
+    #[Locked] public bool $isSuperAdmin = false;
+    #[Locked] public bool $isAdmin = false;
+    #[Locked] public bool $canEdit = true;
+    #[Locked] public bool $canEditKorektor = true;
+    #[Locked] public bool $showValidateButton = false;
+    #[Locked] public bool $canViewProduksiTab = true;
+    #[Locked] public bool $canViewKorektorTab = true;
+    #[Locked] public bool $isProduksiLocked = false;
+    #[Locked] public bool $isKorektorLocked = false;
+    #[Locked] public bool $is_validated = false;
+    #[Locked] public ?int $produksiTelurId = null;
+
     public bool $isCreator = false;
     public bool $isDraftSaved = false;
     public bool $isLocked = false;          // true jika sudah TERVALIDASI (kunci total)
-    public bool $isProduksiLocked = false;  // true jika grid produksi sudah pernah disimpan (kunci per-bagian)
-    public bool $isKorektorLocked = false;  // true jika korektor sudah pernah disimpan (kunci per-bagian)
-    public bool $canEdit = true;
-    public bool $canEditKorektor = true;
-    public bool $showValidateButton = false;
+    public bool $isPegawaiKandang = false;
+    public bool $isPegawaiRuko = false;
 
     // ─── Supporting Data ─────────────────────────────────────
 
@@ -253,10 +284,7 @@ class ProduksiTelurPage extends Page
     public array $allPakan = [];
     public int $maxRows = 10; // 10 baris input harian kaku sesuai template Excel Anda
 
-    public bool $isPegawaiKandang = false;
-    public bool $isPegawaiRuko = false;
-    public bool $canViewProduksiTab = true;
-    public bool $canViewKorektorTab = true;
+
 
     // ─── Lifecycle Hooks ─────────────────────────────────────
 
@@ -288,32 +316,61 @@ class ProduksiTelurPage extends Page
     {
         $this->validate(['tanggal' => 'required|date']);
 
-        if (! $this->isEditable) {
-            $this->denyAccess('Data sudah dikunci/divalidasi. Hubungi Super Admin untuk membuka kembali.');
-            return;
-        }
-
+        // ── Satpam 1: akun harus boleh mengisi Produksi Telur ──
         if (! $this->canViewProduksiTab) {
             $this->denyAccess('Akun Anda tidak memiliki izin mengisi Produksi Telur.');
             return;
         }
 
-        $adaData = false;
+        // ── Satpam 2: cek kunci dari DATABASE ──
+        // Tanggal baru (null) boleh lanjut. Data terkunci/tervalidasi ditolak.
+        $produksi = ProduksiTelur::whereDate('tanggal', $this->tanggal)->first();
 
-        foreach ($this->gridData as $idKandang => $rows) {
+        if ($produksi && ($produksi->is_locked || $produksi->is_validated)) {
+            $this->denyAccess('Data sudah dikunci/divalidasi. Hubungi Admin untuk membuka kembali.');
+            return;
+        }
+
+        // ── Bersihkan data grid ──
+        // Loop dari $this->kandangs (dari database), bukan dari $this->gridData mentah,
+        // supaya id kandang palsu dari browser tidak ikut tersimpan.
+        $dataBersih = [];
+
+        foreach ($this->kandangs as $kandang) {
+            $idKandang = $kandang['id'];
+
+            // Batasi sebanyak baris yang disediakan template
+            $rows = array_slice(array_values($this->gridData[$idKandang] ?? []), 0, $this->maxRows);
+
             foreach ($rows as $row) {
                 $butir = (int) ($row['butir'] ?? 0);
                 $kilo  = (float) ($row['kilo'] ?? 0);
                 $tray  = (float) ($row['tray'] ?? 0);
 
-                if ($butir > 0 || $kilo > 0 || $tray > 0) {
-                    $adaData = true;
-                    break 2;
+                if ($butir < 0 || $kilo < 0 || $tray < 0) {
+                    Notification::make()
+                        ->title('Nilai tidak valid')
+                        ->body('Butir, kilo, dan tray tidak boleh bernilai negatif.')
+                        ->warning()
+                        ->send();
+                    return;
                 }
+
+                // Lewati baris kosong. Pakai == (bukan ===) karena $kilo dan $tray bertipe float.
+                if ($butir == 0 && $kilo == 0 && $tray == 0) {
+                    continue;
+                }
+
+                $dataBersih[$idKandang][] = [
+                    'butir' => $butir,
+                    'kilo'  => $kilo,
+                    'tray'  => $tray,
+                ];
             }
         }
 
-        if (! $adaData) {
+        // ── Minimal ada satu baris data ──
+        if (empty($dataBersih)) {
             Notification::make()
                 ->title('Data Kosong')
                 ->body('Harap isi minimal satu baris data produksi telur sebelum menyimpan.')
@@ -322,73 +379,109 @@ class ProduksiTelurPage extends Page
             return;
         }
 
-        $userId = Auth::id();
-
-        Log::info('DEBUG kandangPakan', $this->kandangPakan);
-
-        DB::transaction(function () use ($userId) {
-            $existing = ProduksiTelur::whereDate('tanggal', $this->tanggal)
-                ->where('created_by', '!=', $userId)
-                ->exists();
-
-            if ($existing && ! $this->isSuperAdmin) {
+        // ── Pakan wajib dipilih untuk kandang yang ada produksinya ──
+        foreach (array_keys($dataBersih) as $idKandang) {
+            if (empty($this->kandangPakan[$idKandang])) {
                 Notification::make()
-                    ->title('Data Sudah Ada')
-                    ->body('Data untuk tanggal ini sudah diinput oleh pengguna lain.')
-                    ->danger()
+                    ->title('Pakan belum dipilih')
+                    ->body('Pilih pakan untuk semua kandang yang ada produksinya.')
+                    ->warning()
                     ->send();
                 return;
             }
+        }
 
-            $produksi = ProduksiTelur::updateOrCreate(
-                ['tanggal' => $this->tanggal],
-                [
-                    'created_by' => $userId,
-                    'is_locked'  => true, // ✅ terkunci otomatis setelah disimpan
-                ]
-            );
+        // ── Pakan yang dipilih harus benar-benar ada di database ──
+        $idPakanDipilih = collect(array_keys($dataBersih))
+            ->map(fn($id) => $this->kandangPakan[$id])
+            ->unique()
+            ->values();
 
-            $this->produksiTelurId = $produksi->id;
+        if (ProduksiPakanCampuran::whereIn('id', $idPakanDipilih)->count() !== $idPakanDipilih->count()) {
+            $this->denyAccess('Pakan yang dipilih tidak valid. Muat ulang halaman lalu pilih kembali.');
+            return;
+        }
 
-            DetailProduksiTelur::where('id_produksi_telur', $produksi->id)->delete();
+        $userId      = Auth::id();
+        $isPerbaikan = false;   // diisi di dalam transaksi, dipakai untuk notifikasi
 
-            foreach ($this->gridData as $idKandang => $rows) {
-                $idPakanSelected = $this->kandangPakan[$idKandang] ?: null;
+        // ── Simpan di dalam transaksi ──
+        try {
+            DB::transaction(function () use ($userId, $dataBersih, &$isPerbaikan) {
+                // Ambil ulang dengan kunci baris, supaya dua klik bersamaan tidak lolos keduanya
+                $produksi = ProduksiTelur::whereDate('tanggal', $this->tanggal)
+                    ->lockForUpdate()
+                    ->first();
 
-                foreach ($rows as $row) {
-                    $butir = (int) ($row['butir'] ?? 0);
-                    $kilo  = (float) ($row['kilo'] ?? 0);
-                    $tray  = (float) ($row['tray'] ?? 0);
-
-                    if ($butir === 0 && $kilo == 0 && $tray === 0) continue;
-
-                    DetailProduksiTelur::create([
-                        'id_produksi_telur'          => $produksi->id,
-                        'id_kandang'                 => $idKandang,
-                        'id_produksi_pakan_campuran' => $idPakanSelected,
-                        'jumlah_telur_butir'         => $butir,
-                        'jumlah_telur_kilo'          => $kilo,
-                        'jumlah_telur_tray'          => $tray,
-                    ]);
+                if ($produksi && ($produksi->is_locked || $produksi->is_validated)) {
+                    throw new \RuntimeException(
+                        'Data sudah dikunci/divalidasi. Hubungi Admin untuk membuka kembali.'
+                    );
                 }
-            }
 
-            if (method_exists($produksi, 'recalculateTotals')) {
-                $produksi->recalculateTotals();
-            }
-        });
+                // Data baru -> buat; data yang sudah dibuka kuncinya -> pakai yang lama
+                $produksi ??= new ProduksiTelur();
 
-        $namaUser = Auth::user()->name;
+                // Record sudah ada = ini penyimpanan ulang setelah "Buka Data" = perbaikan.
+                // WAJIB dihitung SEBELUM save(), karena sesudahnya exists selalu true.
+                $isPerbaikan = $produksi->exists;
+
+                if (! $produksi->exists) {
+                    $produksi->tanggal    = $this->tanggal;
+                    $produksi->created_by = $userId;   // hanya diisi sekali, saat pertama dibuat
+                }
+
+                $produksi->is_locked     = true;
+                $produksi->saved_by      = $userId;        // siapa yang terakhir menyimpan
+                $produksi->saved_at      = now();          // kapan (tidak ikut berubah saat validasi)
+                $produksi->is_diperbaiki = $isPerbaikan;   // label (Diperbaiki)
+                $produksi->save();
+
+                // Hapus detail lama, lalu isi ulang dari data bersih
+                DetailProduksiTelur::where('id_produksi_telur', $produksi->id)->delete();
+
+                foreach ($dataBersih as $idKandang => $rows) {
+                    $idPakanSelected = $this->kandangPakan[$idKandang] ?: null;
+
+                    foreach ($rows as $row) {
+                        DetailProduksiTelur::create([
+                            'id_produksi_telur'          => $produksi->id,
+                            'id_kandang'                 => $idKandang,
+                            'id_produksi_pakan_campuran' => $idPakanSelected,
+                            'jumlah_telur_butir'         => $row['butir'],
+                            'jumlah_telur_kilo'          => $row['kilo'],
+                            'jumlah_telur_tray'          => $row['tray'],
+                        ]);
+                    }
+                }
+
+                if (method_exists($produksi, 'recalculateTotals')) {
+                    $produksi->recalculateTotals();
+                }
+            });
+        } catch (\RuntimeException $e) {
+            // Hanya menangkap penolakan kunci dari dalam transaksi.
+            // Error database lain sengaja dibiarkan muncul agar tidak tersembunyi.
+            $this->denyAccess($e->getMessage());
+            return;
+        }
+
+        $korektor = ProduksiTelurKorektor::where('id_produksi_telur', $produksi->id)->first();
+        $this->computePermissions($produksi, $korektor);
+
         Notification::make()
-            ->title('Data Berhasil Disimpan')
-            ->body("Disimpan oleh: {$namaUser}. Data kini terkunci — hanya Super Admin yang bisa mengedit lagi.")
+            ->title($isPerbaikan ? 'Perbaikan Berhasil Disimpan' : 'Data Berhasil Disimpan')
+            ->body(
+                ($isPerbaikan ? 'Diperbaiki oleh: ' : 'Disimpan oleh: ') . Auth::user()->name .
+                    '. Data kini terkunci, hubungi Admin bila perlu koreksi.'
+            )
             ->success()
             ->send();
 
         Session::forget($this->sessionKey());
 
         $this->dispatch('data-saved');
-        $this->loadExistingDataByTanggal();
+        $this->loadExistingDataByTanggal();   // mengisi ulang produksiTelurId, nama penyimpan, dan label
     }
 
     /**
@@ -399,25 +492,50 @@ class ProduksiTelurPage extends Page
      */
     public function saveKorektorOnly(): void
     {
-        if (! $this->canEditKorektor || ! $this->produksiTelurId) {
-            Notification::make()
-                ->title('Tidak diizinkan mengubah korektor.')
-                ->body('Korektor sudah dikunci. Hubungi Super Admin untuk membuka kembali.')
-                ->danger()
-                ->send();
-            return;
-        }
-
+        // ── Satpam 1: akun harus boleh melihat/mengisi tab Korektor ──
         if (! $this->canViewKorektorTab) {
             $this->denyAccess('Akun Anda tidak memiliki izin mengisi Korektor.');
             return;
         }
 
+        // ── Satpam 2: Produksi Telur harus sudah disimpan (dicek ke DATABASE) ──
+        $produksi = ProduksiTelur::whereDate('tanggal', $this->tanggal)->first();
+
+        if (! $produksi || ! $produksi->is_locked) {
+            $this->denyAccess('Simpan Produksi Telur terlebih dahulu sebelum menyimpan Analisa Korektor.');
+            return;
+        }
+
+        // ── Satpam 3: data yang sudah divalidasi hanya boleh diubah Super Admin ──
+        if ($produksi->is_validated && ! $this->isSuperAdmin) {
+            $this->denyAccess('Data sudah divalidasi.');
+            return;
+        }
+
+        // ── Satpam 4: korektor yang sudah dikunci hanya boleh diubah Super Admin ──
         $korektor = ProduksiTelurKorektor::firstOrNew([
-            'id_produksi_telur' => $this->produksiTelurId,
+            'id_produksi_telur' => $produksi->id,
         ]);
 
-        $isNew = ! $korektor->exists;
+        if ($korektor->exists && $korektor->is_locked && ! $this->isSuperAdmin) {
+            $this->denyAccess('Korektor sudah dikunci. Hubungi Super Admin untuk membuka kembali.');
+            return;
+        }
+
+        // ── Nilai tidak boleh negatif ──
+        foreach ([$this->korektorPeti, $this->korektorKiloan, $this->korektorSisa, $this->korektorBentes] as $nilai) {
+            if (($nilai ?? 0) < 0) {
+                Notification::make()
+                    ->title('Nilai tidak valid')
+                    ->body('Nilai korektor tidak boleh negatif.')
+                    ->warning()
+                    ->send();
+                return;
+            }
+        }
+
+        // ── Semua satpam lolos: simpan data ──
+        $isNew = ! $korektor->exists;   // dihitung SEBELUM save()
 
         $korektor->korektor_peti    = $this->korektorPeti;
         $korektor->korektor_kiloan  = $this->korektorKiloan;
@@ -426,23 +544,23 @@ class ProduksiTelurPage extends Page
         $korektor->korektor_catatan = $this->korektorCatatan;
 
         if ($isNew) {
-            $korektor->created_by = Auth::id();
+            $korektor->created_by = Auth::id();   // hanya diisi sekali
         }
-        $korektor->updated_by = Auth::id();
-        $korektor->is_locked  = true; // ✅ terkunci otomatis setelah disimpan
 
+        $korektor->is_locked     = true;
+        $korektor->saved_by      = Auth::id();
+        $korektor->saved_at      = now();
+        $korektor->is_diperbaiki = ! $isNew;      // sudah ada sebelumnya = perbaikan
         $korektor->save();
 
         Notification::make()
-            ->title('Analisa korektor berhasil disimpan')
+            ->title($isNew ? 'Analisa korektor berhasil disimpan' : 'Perbaikan korektor berhasil disimpan')
             ->body('Data korektor kini terkunci dan tidak bisa diedit lagi tanpa izin Super Admin.')
             ->success()
             ->send();
 
-        $this->hitungKorektor();
-        $this->loadKorektorAuditInfo($korektor);
-        $this->isKorektorLocked = true;
-        $this->canEditKorektor = false;
+        // ✅ Ganti baris manual sebelumnya dengan pemanggilan ini agar state sinkron sempurna
+        $this->loadExistingDataByTanggal();
     }
 
     private function restoreFromSession(): void
@@ -570,14 +688,23 @@ class ProduksiTelurPage extends Page
     {
         if (! $korektor || ! $korektor->exists) {
             $this->namaKorektorPenyimpan = '';
-            $this->waktuKorektorUpdate = '';
+            $this->waktuKorektorUpdate   = '';
+            $this->korektorDiperbaiki    = false;
             return;
         }
 
-        $this->namaKorektorPenyimpan = \App\Models\User::find($korektor->updated_by)?->name ?? '-';
-        $this->waktuKorektorUpdate = $korektor->updated_at
-            ? $korektor->updated_at->format('d M Y H:i')
+        // saved_by untuk data baru. created_by menjadi cadangan untuk data lama.
+        $this->namaKorektorPenyimpan = \App\Models\User::find(
+            $korektor->saved_by ?? $korektor->created_by
+        )?->name ?? 'Tidak diketahui';
+
+        $waktu = $korektor->saved_at ?? $korektor->updated_at ?? $korektor->created_at;
+
+        $this->waktuKorektorUpdate = $waktu
+            ? \Carbon\Carbon::parse($waktu)->format('d M Y H:i')
             : '';
+
+        $this->korektorDiperbaiki = (bool) ($korektor->is_diperbaiki ?? false);
     }
 
     protected function resetMatrix(): void
@@ -727,9 +854,10 @@ class ProduksiTelurPage extends Page
             $this->isDraftSaved = false;
             $this->isCreator = false;
             $this->canEdit = true;
-            $this->canEditKorektor = true;
+            $this->canEditKorektor = false;
             $this->showValidateButton = false;
             $this->isEditable = true;
+            $this->waktuPenyimpanan = '';
 
             $this->namaPenyimpan = '';
             $this->namaValidator = '';
@@ -743,36 +871,24 @@ class ProduksiTelurPage extends Page
         $this->isProduksiLocked = (bool) $produksi->is_locked;
         $this->isKorektorLocked = $korektor ? (bool) $korektor->is_locked : false;
 
-        $this->namaPenyimpan = \App\Models\User::find($produksi->created_by)?->name
-            ?? $produksi->created_by
-            ?? 'Tidak diketahui';
+        $this->namaPenyimpan = \App\Models\User::find(
+            $produksi->saved_by ?? $produksi->created_by
+        )?->name ?? 'Tidak diketahui';
+
+        $waktuSimpan = $produksi->saved_at ?? $produksi->updated_at ?? $produksi->created_at;
+
+        $this->waktuPenyimpanan = $waktuSimpan
+            ? \Carbon\Carbon::parse($waktuSimpan)->format('d M Y H:i')
+            : '';
+
+        $this->produksiDiperbaiki = (bool) ($produksi->is_diperbaiki ?? false);
 
         $this->namaValidator = $produksi->validated_by ?? '';
         $this->waktuValidasi = $produksi->validated_at
             ? \Carbon\Carbon::parse($produksi->validated_at)->format('d M Y H:i')
             : '';
 
-        // ── 1. Super Admin selalu bisa edit ──
-        if ($this->isSuperAdmin) {
-            $this->canEdit = true;
-            $this->canEditKorektor = true;
-            $this->isEditable = true;
-            $this->showValidateButton = ! $produksi->is_validated;
-            return;
-        }
-
-        if ($this->isAdmin) {
-            $this->canEdit = false;
-            $this->canEditKorektor = false;
-            $this->isEditable = false;
-
-            $this->showValidateButton = $this->isProduksiLocked
-                && $this->isKorektorLocked
-                && ! $produksi->is_validated;
-            return;
-        }
-
-        // ── 2. Sudah tervalidasi → terkunci total untuk user biasa ──
+        // ── 1. Jika sudah tervalidasi → terkunci total untuk semua user (termasuk Super Admin) ──
         if ($produksi->is_validated) {
             $this->canEdit = false;
             $this->canEditKorektor = false;
@@ -781,18 +897,18 @@ class ProduksiTelurPage extends Page
             return;
         }
 
-        // ── 3. Belum tervalidasi: kunci per-bagian yang menentukan ──
+        // ── 2. Aturan Standar (Berlaku untuk Super Admin, Admin, dan Pegawai):
+        // Jika sudah disimpan/dikunci, maka tidak bisa diedit langsung (harus Buka Data dulu).
         $this->canEdit = ! $this->isProduksiLocked;
         $this->isEditable = $this->canEdit;
-        $this->canEditKorektor = ! $this->isKorektorLocked;
+        $this->canEditKorektor = $this->isProduksiLocked && ! $this->isKorektorLocked;
 
-        // Validasi hanya untuk yang BUKAN pencatat, dan grid produksi harus sudah disimpan,
-        // dan bukan pegawai_ruko (dia memang gak boleh lihat/isi tab produksi sama sekali).
-        $isAdmin = Auth::user()->hasAnyRole(['admin', 'super_admin']);
+        $isAdminOrSuper = $this->isSuperAdmin || $this->isAdmin;
 
+        // Tombol validasi muncul jika produksi & korektor sudah dikunci dan belum tervalidasi
         $this->showValidateButton = $this->isProduksiLocked
             && $this->isKorektorLocked
-            && $isAdmin;
+            && $isAdminOrSuper;
     }
 
     public function validateProduksi(): void

@@ -18,6 +18,9 @@ class ProduksiTelurKorektor extends Model
         'created_by',
         'updated_by',
         'is_locked',
+        'saved_by',      // ✅ Tambahkan ini
+        'saved_at',      // ✅ Tambahkan ini
+        'is_diperbaiki',
     ];
 
     protected $casts = [
@@ -26,6 +29,8 @@ class ProduksiTelurKorektor extends Model
         'korektor_sisa'   => 'float',
         'korektor_bentes' => 'float',
         'is_locked'       => 'boolean',
+        'saved_at' => 'datetime',       // ✅ Agar otomatis jadi objek Carbon
+        'is_diperbaiki' => 'boolean',
     ];
 
     public function produksiTelur()
@@ -41,5 +46,10 @@ class ProduksiTelurKorektor extends Model
     public function pengubah()
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function savedBy()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'saved_by');
     }
 }

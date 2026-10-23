@@ -17,6 +17,7 @@ use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Maatwebsite\Excel\Facades\Excel;
 use UnitEnum;
 
@@ -33,24 +34,26 @@ class ProduksiPakanLaporan extends Page
     protected static ?int $navigationSort = 3;
 
     /* ─── State ─────────────────────────────────────────────────────────── */
-    public ?string        $selectedDate  = null;
+    public ?string         $selectedDate  = null;
     public ?ProduksiPakan $currentRecord = null;
-    public array          $mentahState   = [];
-    public array          $campuranState = [];
-    public ?string        $keterangan    = '';
-    public bool           $isLocked      = false;
+    public array           $mentahState   = [];
+    public array           $campuranState = [];
+    public ?string         $keterangan    = '';
+
+    #[Locked]
+    public bool            $isLocked      = false;
 
     /* ─── Status ────────────────────────────────────────────────────────── */
-    public bool $isSuperAdmin       = false;
-    public bool $isAdmin      = false;
-    public bool $isCreator          = false;
-    public bool $isDraftSaved       = false;
-    public bool $canEdit            = true;
-    public bool $showSaveButton     = true;
-    public bool $showValidateButton = false;
+    #[Locked] public bool $isSuperAdmin       = false;
+    #[Locked] public bool $isAdmin            = false;
+    #[Locked] public bool $isCreator          = false;
+    #[Locked] public bool $isDraftSaved       = false;
+    #[Locked] public bool $canEdit            = true;
+    #[Locked] public bool $showSaveButton     = true;
+    #[Locked] public bool $showValidateButton = false;
 
     protected bool $isRecalculating = false;
-    public bool $isDraftLocked = false;
+    #[Locked] public bool $isDraftLocked = false;
 
     /* ═══════════════════════════════════════════════════════════════════════
     |  SISTEM LOGGING & SESSION
@@ -63,15 +66,16 @@ class ProduksiPakanLaporan extends Page
                 ->label('Export Excel')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('success')
-                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                ->visible(fn() => ($this->isSuperAdmin || $this->isAdmin))
                 ->action(fn() => $this->exportExcel()),
 
             Action::make('bukaKunci')
                 ->label('Buka Data')
                 ->icon('heroicon-o-lock-open')
                 ->color('warning')
-                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
-                ->modalDescription('Data ini akan bisa diedit kembali oleh creator. Jika sudah tervalidasi, validasi akan dibatalkan.')
+                // Muncul jika Super Admin / Admin, data belum tervalidasi, tapi sudah tersimpan (terkunci draft)
+                ->visible(fn() => ($this->isSuperAdmin || $this->isAdmin) && !$this->isLocked && $this->isDraftLocked)
+                ->modalDescription('Data ini akan bisa diedit kembali oleh creator. Tombol simpan akan muncul kembali.')
                 ->form([
                     DatePicker::make('tanggal')
                         ->label('Tanggal Data')
@@ -86,10 +90,11 @@ class ProduksiPakanLaporan extends Page
                 ->label('Batal Validasi')
                 ->icon('heroicon-o-arrow-uturn-left')
                 ->color('danger')
-                ->visible(fn() => $this->isSuperAdmin || $this->isAdmin)
+                // Muncul hanya saat data SUDAH tervalidasi (isLocked = true)
+                ->visible(fn() => ($this->isSuperAdmin || $this->isAdmin) && $this->isLocked)
                 ->requiresConfirmation()
                 ->modalHeading('Batalkan Validasi Produksi Pakan')
-                ->modalDescription('Status validasi akan direset ke belum tervalidasi. Data TETAP terkunci (tidak bisa diedit) — hanya status validasinya yang dibatalkan agar bisa divalidasi ulang (misalnya untuk regenerasi jurnal pembantu).')
+                ->modalDescription('Status validasi akan direset ke belum tervalidasi. Data tetap terkunci sampai dibuka kembali.')
                 ->modalSubmitActionLabel('Ya, Batalkan Validasi')
                 ->form([
                     DatePicker::make('tanggal')
@@ -501,6 +506,7 @@ class ProduksiPakanLaporan extends Page
         try {
             DB::transaction(function () {
                 if (!$this->currentRecord) {
+                    // Jika data benar-benar baru
                     $this->currentRecord = ProduksiPakan::create([
                         'tanggal_produksi' => $this->selectedDate,
                         'created_by'       => Auth::user()->name,
@@ -508,7 +514,13 @@ class ProduksiPakanLaporan extends Page
                         'is_locked'        => true,
                     ]);
                 } else {
-                    $this->currentRecord->update(['keterangan' => $this->keterangan, 'is_locked'  => true,]);
+                    // Jika data sudah ada (artinya sedang diperbarui / diedit ulang setelah dibuka)
+                    $this->currentRecord->update([
+                        'keterangan' => $this->keterangan,
+                        'is_locked'  => true,
+                        // 'created_by' DIKELUARKAN dari sini agar nama Udin (pembuat asli) tidak tertimpa!
+                        'updated_by' => Auth::user()->name, // Dicatat siapa yang memperbaiki (misal: Super Admin)
+                    ]);
                 }
                 $semuaInputMentah = $this->mentahState;
 
@@ -615,22 +627,7 @@ class ProduksiPakanLaporan extends Page
 
     private function computePermissions(): void
     {
-        if ($this->isSuperAdmin) {
-            $this->canEdit            = true;
-            $this->showSaveButton     = true;
-            $this->showValidateButton = !$this->isLocked && $this->currentRecord !== null;
-            return;
-        }
-
-        // ── Admin: tidak bisa edit isi data, hanya bisa memvalidasi ──
-        // setelah draft pernah disimpan/dikunci oleh creator.
-        if ($this->isAdmin) {
-            $this->canEdit            = false;
-            $this->showSaveButton     = false;
-            $this->showValidateButton = $this->isDraftLocked && !$this->isLocked;
-            return;
-        }
-
+        // 1. Jika data sudah divalidasi penuh (isLocked = true)
         if ($this->isLocked) {
             $this->canEdit            = false;
             $this->showSaveButton     = false;
@@ -638,22 +635,26 @@ class ProduksiPakanLaporan extends Page
             return;
         }
 
-        if ($this->isDraftSaved) {
-            if ($this->isDraftLocked) {
-                $this->canEdit            = false;
-                $this->showSaveButton     = false;
-                $this->showValidateButton = false; // user biasa tidak boleh validasi
-            } else {
-                $this->canEdit            = $this->isCreator;
-                $this->showSaveButton     = $this->isCreator;
-                $this->showValidateButton = false;
-            }
+        // 2. Jika data sudah disimpan (isDraftLocked = true / belum divalidasi tapi sudah masuk DB)
+        if ($this->isDraftLocked) {
+            $this->canEdit            = false;
+            $this->showSaveButton     = false; // Tombol simpan HILANG di mana pun (termasuk Super Admin)
+            $this->showValidateButton = true;  // Tombol validasi MUNCUL
             return;
         }
 
+        // 3. Jika data sudah ada di DB tapi statusnya dibuka (is_locked = false, setelah Buka Data)
+        if ($this->currentRecord !== null && !$this->isDraftLocked) {
+            $this->canEdit            = true;
+            $this->showSaveButton     = true;  // Tombol simpan MUNCUL KEMBALI saat dibuka
+            $this->showValidateButton = false;
+            return;
+        }
+
+        // 4. Kondisi default: Data baru / belum pernah disimpan sama sekali
         $this->canEdit            = true;
-        $this->showSaveButton     = true;
-        $this->showValidateButton = false;
+        $this->showSaveButton     = true;  // Tombol simpan ada
+        $this->showValidateButton = false; // Tombol validasi belum ada sebelum disimpan
     }
 
     public function autoFillKolom(string $jenis): void

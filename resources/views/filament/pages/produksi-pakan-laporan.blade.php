@@ -99,7 +99,6 @@
             border-radius: 0.375rem;
             transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
             color: inherit;
-            /* Bayangan tipis agar terasa seperti "form field" sungguhan */
             box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
         }
 
@@ -151,16 +150,47 @@
 
                     @if($currentRecord)
                     <div class="flex flex-wrap items-center gap-3">
+
+                        {{-- Jika data sedang dibuka --}}
+                        @if(!$isLocked && !$currentRecord->is_locked && empty($currentRecord->validated_by))
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-400/10 dark:text-amber-400 dark:ring-amber-400/20">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-3.5 w-3.5 shrink-0">
+                                <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm0 8.7a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 .75-.75Zm0-3.3a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clip-rule="evenodd" />
+                            </svg>
+                            Data sedang dibuka (Dalam Perbaikan)
+                        </span>
+                        @else
+
+                        @php
+                        // Deteksi apakah data sudah pernah diperbarui setelah dibuat
+                        $isEdited = $currentRecord->updated_at && $currentRecord->created_at && $currentRecord->updated_at->gt($currentRecord->created_at->addSeconds(10));
+                        @endphp
+
                         <span class="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
                             </svg>
-                            Dibuat oleh:
-                            <strong class="text-gray-700 dark:text-gray-200">
-                                {{ $currentRecord->created_by ?? '-' }}
-                            </strong>
-                        </span>
 
+                            Dibuat oleh: <strong class="text-gray-700 dark:text-gray-200">{{ $currentRecord->created_by ?? '-' }}</strong>
+
+                            @if($isEdited)
+                            <span class="text-gray-400 mx-1">|</span>
+                            Diperbaiki oleh: <strong class="text-gray-700 dark:text-gray-200">{{ $currentRecord->updated_by ?? $currentRecord->created_by }}</strong>
+                            @endif
+
+                            <span class="text-xs text-gray-400">
+                                ({{ optional($currentRecord->updated_at)->format('d/m/Y H:i') }})
+                            </span>
+
+                            @if($isEdited)
+                            <span class="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-400/10 dark:text-blue-400">
+                                Diperbaiki
+                            </span>
+                            @endif
+                        </span>
+                        @endif
+
+                        {{-- Badge Status Validasi --}}
                         @if($isLocked)
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 ring-1 ring-inset ring-green-600/20 dark:bg-green-400/10 dark:text-green-400 dark:ring-green-400/20">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-3.5 w-3.5 shrink-0">
@@ -169,6 +199,7 @@
                             Divalidasi oleh {{ $currentRecord->validated_by }}
                         </span>
                         @else
+                        @if(!(!$isLocked && !$currentRecord->is_locked && empty($currentRecord->validated_by)))
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-400/10 dark:text-amber-400 dark:ring-amber-400/20">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-3.5 w-3.5 shrink-0">
                                 <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25ZM12.75 6a.75.75 0 0 0-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 0 0 0-1.5h-3.75V6Z" clip-rule="evenodd" />
@@ -176,19 +207,22 @@
                             Menunggu Validasi
                         </span>
                         @endif
+                        @endif
                     </div>
                     @endif
 
                     <div class="flex shrink-0 items-center gap-2">
 
                         @if($showSaveButton)
-                        <x-filament::button wire:click="save" icon="heroicon-m-arrow-down-on-square-stack" color="gray" size="sm">
+                        {{-- Menggunakan event dispatch agar terhubung ke x-data modal di bawah --}}
+                        <x-filament::button x-on:click="$dispatch('open-save-confirm')" icon="heroicon-m-arrow-down-on-square-stack" color="gray" size="sm">
                             Simpan Draft
                         </x-filament::button>
                         @endif
 
                         @if($showValidateButton)
-                        <x-filament::button wire:click="validateData" color="success" icon="heroicon-m-check-badge" size="sm" wire:confirm="Validasi akan mengunci data secara permanen. Lanjutkan?">
+                        {{-- Menggunakan event dispatch untuk membuka modal validasi --}}
+                        <x-filament::button x-on:click="$dispatch('open-validate-confirm')" color="success" icon="heroicon-m-check-badge" size="sm">
                             Validasi & Kunci
                         </x-filament::button>
                         @endif
@@ -264,7 +298,6 @@
                                         wire:target="autoFillKolom('p')"
                                         title="Klik untuk isi otomatis kolom Pullet dari komposisi"
                                         class="group inline-flex items-center gap-1 text-primary-600 dark:text-primary-400 hover:text-primary-500 transition-colors">
-                                        {{-- Ikon AI (sparkles) --}}
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
                                             class="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 transition-opacity"
                                             wire:loading.class="animate-spin" wire:target="autoFillKolom('p')">
@@ -451,7 +484,6 @@
             </div>
         </div>
 
-
         {{-- ── 3d. KETERANGAN & AUDIT ──────────────────────────────────────── --}}
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
 
@@ -493,9 +525,17 @@
                                         <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z" clip-rule="evenodd" />
                                     </svg>
                                     <div>
-                                        <p class="text-sm font-semibold text-green-600 dark:text-green-400">{{ $currentRecord->validated_by }}</p>
+                                        <p class="text-sm font-semibold text-green-600 dark:text-green-400">Divalidasi oleh {{ $currentRecord->validated_by }}</p>
                                         <p class="text-xs text-gray-400 dark:text-gray-500">{{ optional($currentRecord->updated_at)->format('d/m/Y H:i') }}</p>
                                     </div>
+                                </div>
+                                @else
+                                @if($currentRecord && !$currentRecord->is_locked && empty($currentRecord->validated_by))
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5 shrink-0 text-amber-500 dark:text-amber-400">
+                                        <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm0 8.7a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 .75-.75Zm0-3.3a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clip-rule="evenodd" />
+                                    </svg>
+                                    <p class="text-sm font-semibold text-amber-600 dark:text-amber-400">Data sedang dibuka (Dalam Perbaikan)</p>
                                 </div>
                                 @else
                                 <div class="flex items-center gap-2">
@@ -504,6 +544,7 @@
                                     </svg>
                                     <p class="text-sm font-semibold text-amber-600 dark:text-amber-400">Menunggu Validasi</p>
                                 </div>
+                                @endif
                                 @endif
                             </div>
                         </div>
@@ -517,5 +558,145 @@
     </div>
 
     <x-filament-actions::modals />
+
+    {{-- ── POPUP KONFIRMASI SIMPAN PRODUKSI PAKAN ── --}}
+    <div
+        x-data="{ showSaveConfirm: false }"
+        @open-save-confirm.window="showSaveConfirm = true"
+        class="contents">
+
+        <div
+            x-cloak
+            x-show="showSaveConfirm"
+            x-transition.opacity
+            x-on:keydown.escape.window="showSaveConfirm = false"
+            class="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-950/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            style="display: none;">
+
+            <div
+                x-transition.scale.95
+                x-on:click.outside="showSaveConfirm = false"
+                class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+
+                <div class="flex items-start gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-700 dark:bg-gray-800/70">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                        <x-heroicon-o-clipboard-document-check class="h-5 w-5" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h2 class="text-base font-bold text-gray-950 dark:text-white">
+                            Konfirmasi Simpan Produksi Pakan
+                        </h2>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                            Periksa kembali sebelum menyimpan. Data akan dikunci setelah disimpan.
+                        </p>
+                    </div>
+                    <button type="button" x-on:click="showSaveConfirm = false"
+                        class="rounded-lg p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-white">
+                        <x-heroicon-o-x-mark class="h-5 w-5" />
+                    </button>
+                </div>
+
+                <div class="space-y-4 p-5">
+                    <div class="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2.5 dark:border-gray-700">
+                        <span class="text-sm text-gray-500 dark:text-gray-400">Tanggal Produksi</span>
+                        <span class="text-sm font-bold text-gray-900 dark:text-white">
+                            {{ \Carbon\Carbon::parse($selectedDate)->translatedFormat('d F Y') }}
+                        </span>
+                    </div>
+
+                    <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                        <span class="font-bold">Perhatian:</span> Pastikan input bahan mentah dan alokasi pakan campuran (Pullet, Layer 1, Layer 2) sudah benar.
+                    </div>
+                </div>
+
+                <div class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end dark:border-gray-700 dark:bg-gray-800/50">
+                    <x-filament::button color="gray" outlined x-on:click="showSaveConfirm = false">
+                        Batal, Periksa Lagi
+                    </x-filament::button>
+                    <x-filament::button
+                        color="success"
+                        icon="heroicon-o-check-circle"
+                        x-on:click="
+                            showSaveConfirm = false;
+                            $wire.save();
+                        ">
+                        Ya, Simpan Data
+                    </x-filament::button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- ── POPUP KONFIRMASI VALIDASI & KUNCI PRODUKSI PAKAN ── --}}
+    <div
+        x-data="{ showValidateConfirm: false }"
+        @open-validate-confirm.window="showValidateConfirm = true"
+        class="contents">
+
+        <div
+            x-cloak
+            x-show="showValidateConfirm"
+            x-transition.opacity
+            x-on:keydown.escape.window="showValidateConfirm = false"
+            class="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-950/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            style="display: none;">
+
+            <div
+                x-transition.scale.95
+                x-on:click.outside="showValidateConfirm = false"
+                class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+
+                <div class="flex items-start gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-700 dark:bg-gray-800/70">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                        <x-heroicon-o-check-badge class="h-6 w-6" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h2 class="text-base font-bold text-gray-950 dark:text-white">
+                            Konfirmasi Validasi & Kunci Produksi Pakan
+                        </h2>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                            Validasi akan mengunci data secara permanen dan menghasilkan jurnal pembantu otomatis.
+                        </p>
+                    </div>
+                    <button type="button" x-on:click="showValidateConfirm = false"
+                        class="rounded-lg p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-800 dark:hover:bg-gray-700 dark:hover:text-white">
+                        <x-heroicon-o-x-mark class="h-5 w-5" />
+                    </button>
+                </div>
+
+                <div class="space-y-4 p-5">
+                    <div class="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2.5 dark:border-gray-700">
+                        <span class="text-sm text-gray-500 dark:text-gray-400">Tanggal Produksi</span>
+                        <span class="text-sm font-bold text-gray-900 dark:text-white">
+                            {{ \Carbon\Carbon::parse($selectedDate)->translatedFormat('d F Y') }}
+                        </span>
+                    </div>
+
+                    <div class="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200">
+                        <span class="font-bold">Penting:</span> Setelah divalidasi, data tidak dapat diubah kembali kecuali dibuka oleh Super Admin / Admin melalui menu "Batal Validasi" dan "Buka Data".
+                    </div>
+                </div>
+
+                <div class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end dark:border-gray-700 dark:bg-gray-800/50">
+                    <x-filament::button color="gray" outlined x-on:click="showValidateConfirm = false">
+                        Batal
+                    </x-filament::button>
+                    <x-filament::button
+                        color="success"
+                        icon="heroicon-o-check-badge"
+                        x-on:click="
+                            showValidateConfirm = false;
+                            $wire.validateData();
+                        ">
+                        Ya, Validasi & Kunci
+                    </x-filament::button>
+                </div>
+            </div>
+        </div>
+    </div>
 
 </x-filament-panels::page>

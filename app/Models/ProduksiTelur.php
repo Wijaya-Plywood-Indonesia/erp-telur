@@ -27,6 +27,10 @@ class ProduksiTelur extends Model
         'korektor_sisa',
         'korektor_bentes',
         'korektor_catatan',
+
+        'saved_by',      // ✅ Tambahkan ini
+        'saved_at',      // ✅ Tambahkan ini
+        'is_diperbaiki',
     ];
 
     protected $casts = [
@@ -37,6 +41,8 @@ class ProduksiTelur extends Model
         'korektor_sisa'    => 'decimal:2',
         'korektor_bentes'  => 'decimal:2',
         'is_locked'    => 'boolean',
+        'saved_at' => 'datetime',       // ✅ Agar otomatis jadi objek Carbon
+        'is_diperbaiki' => 'boolean',
     ];
 
     private const KG_PER_PETI = 10.0;
@@ -167,5 +173,10 @@ class ProduksiTelur extends Model
     public function korektor()
     {
         return $this->hasOne(ProduksiTelurKorektor::class, 'id_produksi_telur');
+    }
+
+    public function savedBy()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'saved_by');
     }
 }

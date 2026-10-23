@@ -11,6 +11,7 @@ class ProduksiPakan extends Model
         'keterangan',
         'created_by',
         'validated_by',
+        'updated_by',
         'is_locked',
     ];
 
