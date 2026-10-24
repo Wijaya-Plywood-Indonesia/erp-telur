@@ -2,6 +2,8 @@
     @php
         $rp  = fn ($v) => 'Rp ' . number_format((float) $v, 0, ',', '.');
         $num = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, ',', '.'), '0'), ',');
+        // rupiah bertanda (untuk laba/rugi): −Rp 1.000.000
+        $rps = fn ($v) => ((float) $v < 0 ? '−' : '') . 'Rp ' . number_format(abs((float) $v), 0, ',', '.');
         $rpk = function ($v) {
             $v = (float) $v;
             $a = abs($v);
@@ -42,7 +44,7 @@
         .at-dates input { background: var(--at-card); color: var(--at-tx); border: 1px solid var(--at-bd); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
 
         /* kpi */
-        .at-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .at-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
         .at-kpi .lb { font-size: 12px; color: var(--at-mu); margin-bottom: 6px; }
         .at-kpi .vl { font-size: 22px; font-weight: 800; line-height: 1.15; }
         .at-kpi .sb { margin-top: 8px; font-size: 12px; color: var(--at-mu); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -127,6 +129,22 @@
         .at-stok .tg { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
         .at-stok.low { border-color: rgba(239,68,68,.5); }
 
+        /* laba / rugi */
+        .at-pos { color: #059669; } .at-neg { color: #dc2626; }
+        .dark .at-pos { color: #34d399; } .dark .at-neg { color: #f87171; }
+        .at-zero { stroke: var(--at-mu); stroke-width: 1.3; opacity: .65; }
+        .at-tip-l { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--at-bd); font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
+        .at-kpi .brk { margin-top: 8px; font-size: 11px; color: var(--at-mu); line-height: 1.6; }
+        .at-kpi a.lnk { color: var(--at-amber); font-weight: 700; font-size: 12px; text-decoration: none; }
+        .at-kpi a.lnk:hover { text-decoration: underline; }
+        .at-lb { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+        .at-lbk { border: 1px solid var(--at-bd); border-radius: 12px; padding: 12px 14px; }
+        .at-lbk .nm { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--at-mu); font-weight: 600; }
+        .at-lbk .nm i { width: 9px; height: 9px; border-radius: 99px; flex: none; }
+        .at-lbk .big { font-size: 20px; font-weight: 800; margin: 6px 0 4px; }
+        .at-lbk .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--at-mu); padding: 1px 0; }
+        .at-lbk .kv b { color: var(--at-tx); font-weight: 600; }
+
         @media (max-width: 900px) { .at-cols { grid-template-columns: 1fr; } }
         @media (max-width: 700px) { .at-kpis { grid-template-columns: 1fr; } .at-harga-wrap { order: -1; } }
         @media (max-width: 480px) { .at-kpi .vl { font-size: 18px; } .at-mbig { font-size: 24px; } }
@@ -135,7 +153,7 @@
     <div class="at-stack">
 
         {{-- ════════════ FILTER ════════════ --}}
-        <div class="at-card" id="at-filter">
+        <div class="at-card">
             <div class="at-filter">
                 <div class="at-seg">
                     @foreach (['7h' => '7 Hari', '30h' => '30 Hari', '90h' => '90 Hari', '12b' => '12 Bulan', 'semua' => 'Semua'] as $k => $l)
@@ -159,12 +177,50 @@
         </div>
 
         {{-- ════════════ KPI ════════════ --}}
+        @php
+            $lab    = $d['laba'];
+            $lb     = $d['laba_bersih'];
+            $lbNeg  = $lb && $lb['laba_bersih'] < 0;
+            $lbDel  = $lb ? $lb['delta'] : 0;
+        @endphp
         <div class="at-kpis">
             <div class="at-card at-kpi">
                 <div class="lb">Omset periode</div>
                 <div class="vl">{{ $rp($d['kpi']['total']) }}</div>
                 <div class="sb">{!! $chip($d['kpi']['growth']) !!} <span>vs periode sebelumnya</span></div>
             </div>
+
+            {{-- Laba kotor penjualan = omset − HPP --}}
+            <div class="at-card at-kpi">
+                <div class="lb">{{ $lab['total'] < 0 ? 'Rugi kotor penjualan' : 'Laba kotor penjualan' }}</div>
+                <div class="vl {{ $lab['total'] < 0 ? 'at-neg' : '' }}">{{ $rps($lab['total']) }}</div>
+                <div class="sb">
+                    @if ($lab['margin'] !== null)
+                        <span class="at-chip {{ $lab['margin'] < 0 ? 'at-down' : 'at-flat' }}">Margin {{ number_format($lab['margin'], 1, ',', '.') }}%</span>
+                    @endif
+                    {!! $chip($lab['growth']) !!} <span>vs sebelumnya</span>
+                </div>
+                <div class="brk">Omset − HPP barang terjual ({{ $rp($lab['hpp']) }}). Belum termasuk beban operasional.</div>
+            </div>
+
+            {{-- Laba / rugi bersih (dari jurnal) --}}
+            @if ($lb)
+                <div class="at-card at-kpi">
+                    <div class="lb">{{ $lbNeg ? 'Rugi bersih' : 'Laba bersih' }} (setelah beban)</div>
+                    <div class="vl {{ $lbNeg ? 'at-neg' : 'at-pos' }}">{{ $rps($lb['laba_bersih']) }}</div>
+                    <div class="sb">
+                        <span class="at-chip {{ $lbDel > 0 ? 'at-up' : ($lbDel < 0 ? 'at-down' : 'at-flat') }}">{{ $lbDel > 0 ? '▲' : ($lbDel < 0 ? '▼' : '•') }} {{ $rpk(abs($lbDel)) }}</span>
+                        <span>vs periode sebelumnya</span>
+                    </div>
+                    <div class="brk">
+                        Pendapatan {{ $rp($lb['pendapatan'] + $lb['pendapatan_lain']) }} − HPP {{ $rp($lb['hpp']) }} − Beban {{ $rp($lb['beban']) }}<br>
+                        Dari jurnal yang sudah diposting.
+                        @if ($urlLabaRugi)
+                            <a class="lnk" href="{{ $urlLabaRugi }}">Lihat rincian di Laba Rugi Telur →</a>
+                        @endif
+                    </div>
+                </div>
+            @endif
 
             <div class="at-card at-kpi">
                 <div class="lb">Rata-rata per hari</div>
@@ -189,7 +245,7 @@
             x-data="{
                 d: @js($d['chart']),
                 w: 900, h: 380,
-                show: { omset: true, kiloan: false, petian: false, bentes: false, stok: false },
+                show: { omset: true, laba: false, kiloan: false, petian: false, bentes: false, stok: false },
                 hover: null, modal: null,
 
                 init() {
@@ -200,7 +256,7 @@
                 },
 
                 get n() { return this.d.points.length },
-                get keys() { return ['omset', 'kiloan', 'petian', 'bentes'].filter(k => this.show[k]) },
+                get keys() { return ['omset', 'laba', 'kiloan', 'petian', 'bentes'].filter(k => this.show[k]) },
                 get mp() { return this.modal === null ? null : this.d.points[this.modal] },
                 get hp() { return this.hover === null ? null : this.d.points[this.hover] },
 
@@ -209,23 +265,36 @@
                     const raw = m / 4, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
                     return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p * 4;
                 },
-                val(k, p) { return k === 'omset' ? p.omset : p.jenis[k].omset },
-                col(k) { return k === 'omset' ? '#f59e0b' : k === 'stok' ? '#0ea5e9' : this.d.jenis[k].color },
+                val(k, p) { return k === 'omset' ? p.omset : k === 'laba' ? p.laba : p.jenis[k].omset },
+                col(k) { return k === 'omset' ? '#f59e0b' : k === 'laba' ? '#65a30d' : k === 'stok' ? '#0ea5e9' : this.d.jenis[k].color },
+
+                nstep(span, div) {
+                    if (!(span > 0)) return 1;
+                    const raw = span / div, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+                    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+                },
 
                 geom() {
                     const s = this.w < 560;
                     const P = { l: s ? 52 : 70, r: this.show.stok ? (s ? 48 : 66) : 16, t: 20, b: 34 };
                     const iw = this.w - P.l - P.r, ih = this.h - P.t - P.b, n = this.n;
-                    let ml = 0, ms = 0;
+                    let hi = 0, lo = 0, ms = 0;
                     this.d.points.forEach(p => {
-                        this.keys.forEach(k => { ml = Math.max(ml, this.val(k, p)); });
+                        this.keys.forEach(k => { const v = this.val(k, p); hi = Math.max(hi, v); lo = Math.min(lo, v); });
                         ms = Math.max(ms, p.stok || 0);
                     });
-                    ml = this.nice(ml); ms = this.nice(ms);
+                    const step = this.nstep(hi - lo, 4);
+                    hi = Math.ceil(hi / step) * step;
+                    lo = Math.floor(lo / step) * step;
+                    if (hi === lo) hi = lo + step;
+                    const ticks = [];
+                    for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v * 100) / 100);
+                    const div = Math.max(1, ticks.length - 1);
+                    ms = this.nstep(ms, div) * div;
                     return {
-                        P, iw, ih, n, ml, ms,
+                        P, iw, ih, n, lo, hi, ticks, div, ms,
                         X: i => n < 2 ? P.l + iw / 2 : P.l + iw * i / (n - 1),
-                        YL: v => P.t + ih * (1 - v / ml),
+                        YL: v => P.t + ih * (1 - (v - lo) / (hi - lo)),
                         YS: v => P.t + ih * (1 - v / ms)
                     };
                 },
@@ -257,11 +326,11 @@
                     const g = this.geom(), P = g.P, W = this.w;
                     let s = `<defs><linearGradient id='atg' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='#f59e0b' stop-opacity='.30'/><stop offset='100%' stop-color='#f59e0b' stop-opacity='0'/></linearGradient></defs>`;
 
-                    [0, 1, 2, 3, 4].forEach(i => {
-                        const y = P.t + g.ih * (1 - i / 4);
-                        s += `<line class='at-grid' x1='${P.l}' x2='${W - P.r}' y1='${y}' y2='${y}'/>`;
-                        if (this.keys.length) s += `<text class='at-ax' x='${P.l - 8}' y='${y + 4}' text-anchor='end'>${this.rpk(g.ml * i / 4)}</text>`;
-                        if (this.show.stok) s += `<text class='at-ax' x='${W - P.r + 8}' y='${y + 4}'>${this.num(g.ms * i / 4)}</text>`;
+                    g.ticks.forEach((t, i) => {
+                        const y = g.YL(t);
+                        s += `<line class='${t === 0 && g.lo < 0 ? 'at-zero' : 'at-grid'}' x1='${P.l}' x2='${W - P.r}' y1='${y}' y2='${y}'/>`;
+                        if (this.keys.length) s += `<text class='at-ax' x='${P.l - 8}' y='${y + 4}' text-anchor='end'>${this.rpk(t)}</text>`;
+                        if (this.show.stok) s += `<text class='at-ax' x='${W - P.r + 8}' y='${y + 4}'>${this.num(g.ms * i / g.div)}</text>`;
                     });
 
                     const step = Math.max(1, Math.ceil(g.n / (this.w < 560 ? 5 : 9)));
@@ -272,7 +341,7 @@
                     const pts = k => this.d.points.map((p, i) => [g.X(i), k === 'stok' ? g.YS(p.stok || 0) : g.YL(this.val(k, p))]);
 
                     if (this.show.omset) {
-                        const o = pts('omset'), base = P.t + g.ih;
+                        const o = pts('omset'), base = g.YL(0);
                         s += `<path d='${this.smooth(o)} L${o[o.length - 1][0]},${base} L${o[0][0]},${base} Z' fill='url(#atg)'/>`;
                     }
                     this.keys.forEach(k => {
@@ -334,6 +403,13 @@
                 },
 
                 rp(v) { return 'Rp ' + Math.round(v).toLocaleString('id-ID') },
+                rps(v) { return (v < 0 ? '−' : '') + 'Rp ' + Math.abs(Math.round(v)).toLocaleString('id-ID') },
+                labaRows(p) {
+                    return ['kiloan', 'petian', 'bentes', 'lainnya']
+                        .map(k => ({ k, label: this.d.jenis[k].label, color: this.d.jenis[k].color, omset: p.jenis[k].omset, hpp: p.jenis[k].hpp, laba: p.jenis[k].laba, margin: p.jenis[k].margin }))
+                        .filter(r => r.omset > 0)
+                        .sort((a, b) => b.laba - a.laba);
+                },
                 num(v) { return Number(v).toLocaleString('id-ID', { maximumFractionDigits: 2 }) },
                 pc(v) { return Number(v).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + '%' },
                 pcs(v) { return (v === null || v === undefined) ? '—' : (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '') + Math.abs(v).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + '%' },
@@ -353,6 +429,9 @@
             <div class="at-legend">
                 <button type="button" class="at-lg" :class="{ on: show.omset }" @click="show.omset = !show.omset">
                     <i style="background:#f59e0b"></i> Omset
+                </button>
+                <button type="button" class="at-lg" :class="{ on: show.laba }" @click="show.laba = !show.laba">
+                    <i style="background:#65a30d"></i> Laba kotor
                 </button>
                 <template x-for="k in ['kiloan', 'petian', 'bentes']" :key="k">
                     <button type="button" class="at-lg" :class="{ on: show[k] }" @click="show[k] = !show[k]">
@@ -387,6 +466,10 @@
                                     <b x-text="pc(r.persen)"></b>
                                 </div>
                             </template>
+                            <div class="at-tip-l">
+                                <span>Laba kotor</span>
+                                <span :class="hp.laba < 0 ? 'at-neg' : 'at-pos'" x-text="rps(hp.laba) + (hp.margin !== null ? ' · ' + pc(hp.margin) : '')"></span>
+                            </div>
                             <div class="at-tip-f" x-show="show.stok &amp;&amp; hp.stok !== null" x-text="'Stok telur: ' + num(hp.stok)"></div>
                             <div class="at-tip-hint">Klik titik untuk detail</div>
                         </div>
@@ -430,6 +513,21 @@
                             </template>
                             <div class="at-mu" x-show="rows(mp).length === 0">Tidak ada penjualan pada periode ini.</div>
 
+                            <div class="at-sec">Laba kotor penjualan</div>
+                            <div class="at-kv"><span>Laba kotor (omset − HPP)</span><b :class="mp.laba < 0 ? 'at-neg' : 'at-pos'" x-text="rps(mp.laba)"></b></div>
+                            <div class="at-kv"><span>Margin</span><b x-text="mp.margin === null ? '—' : pc(mp.margin)"></b></div>
+                            <div class="at-kv"><span>HPP barang terjual</span><b x-text="rp(mp.hpp)"></b></div>
+                            <div class="at-kv" x-show="mp.laba_delta !== null">
+                                <span x-text="'vs ' + d.banding"></span>
+                                <b :class="mp.laba_delta < 0 ? 'at-neg' : 'at-pos'" x-text="(mp.laba_delta > 0 ? '+' : '') + rps(mp.laba_delta)"></b>
+                            </div>
+                            <template x-for="r in labaRows(mp)" :key="'l' + r.k">
+                                <div class="at-kv">
+                                    <span class="at-mu" x-text="r.label"></span>
+                                    <span :class="r.laba < 0 ? 'at-neg' : ''" x-text="rps(r.laba) + (r.margin !== null ? ' (' + pc(r.margin) + ')' : '')"></span>
+                                </div>
+                            </template>
+
                             <div class="at-note" x-show="mp.naik">
                                 <b>Paling naik:</b> <span x-text="mp.naik ? mp.naik.label + ' (+' + rp(mp.naik.delta) + ')' : ''"></span>
                             </div>
@@ -452,6 +550,28 @@
                     </template>
                 </div>
             </template>
+        </div>
+
+        {{-- ════════════ LABA KOTOR PER JENIS ════════════ --}}
+        <div class="at-card">
+            <h2 class="at-title">Laba Kotor per Jenis</h2>
+            <div class="at-lb">
+                @foreach ($d['kategori'] as $k)
+                    @if ($k['omset'] > 0)
+                        <div class="at-lbk">
+                            <div class="nm"><i style="background: {{ $k['color'] }}"></i>{{ $k['label'] }}</div>
+                            <div class="big {{ $k['laba'] < 0 ? 'at-neg' : 'at-pos' }}">{{ $rps($k['laba']) }}</div>
+                            <div class="kv"><span>Margin</span><b>{{ $k['margin'] === null ? '—' : number_format($k['margin'], 1, ',', '.') . '%' }}</b></div>
+                            <div class="kv"><span>Omset</span><b>{{ $rp($k['omset']) }}</b></div>
+                            <div class="kv"><span>HPP</span><b>{{ $rp($k['hpp']) }}</b></div>
+                        </div>
+                    @endif
+                @endforeach
+            </div>
+            <p class="at-mu" style="margin: 12px 0 0">
+                Laba kotor = omset − (qty × HPP di Master Barang saat ini). Margin merah (negatif) berarti dijual di bawah HPP.
+                Beban operasional (gaji, listrik, dll.) belum dikurangkan, lihat kartu laba/rugi bersih di atas.
+            </p>
         </div>
 
         {{-- ════════════ INSIGHT OTOMATIS ════════════ --}}

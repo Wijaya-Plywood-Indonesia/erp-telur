@@ -86,7 +86,7 @@ class AnalisisTelur extends Page
         $this->hargaTab = in_array($tab, ['pakan', 'telur'], true) ? $tab : 'pakan';
     }
 
-    /** Harga beli bersifat sensitif: hanya admin & pemegang role dashboard_analisis. */
+    /** Harga beli & laba bersifat sensitif: hanya admin & pemegang role dashboard_analisis. */
     protected function bolehLihatHarga(): bool
     {
         return Auth::user()?->hasAnyRole(['admin', 'super_admin', self::ROLE]) ?? false;
@@ -116,11 +116,16 @@ class AnalisisTelur extends Page
             $this->terapkanPreset('30h');
         }
 
+        $boleh = $this->bolehLihatHarga();
+
         return [
-            'd' => app(AnalisisTelurService::class)->build($this->granularitas, $this->dari, $this->sampai),
-            'hargaData' => $this->bolehLihatHarga()
+            // laba bersih (dari jurnal) hanya dihitung untuk yang berhak melihat
+            'd' => app(AnalisisTelurService::class)->build($this->granularitas, $this->dari, $this->sampai, $boleh),
+            'hargaData' => $boleh
                 ? app(HargaPatokService::class)->build($this->dari, $this->sampai)
                 : null,
+            // tautan ke menu Laba Rugi Telur (hanya bila user boleh membukanya)
+            'urlLabaRugi' => LabaRugiTelur::canAccess() ? LabaRugiTelur::getUrl() : null,
         ];
     }
 }

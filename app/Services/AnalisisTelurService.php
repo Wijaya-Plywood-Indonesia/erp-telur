@@ -7,10 +7,13 @@ use App\Models\JurnalUmum;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Data untuk menu "Analisis Telur":
  *  - omset per periode (harian / mingguan / bulanan) + komposisi per jenis telur
+ *  - laba kotor penjualan = omset − (qty × HPP master barang), per jenis & per periode
+ *  - laba/rugi bersih periode (dari jurnal, via LabaRugiRingkasanService)
  *  - stok telur (dari jurnal umum, sama seperti Matrix Barang)
  *  - pola per hari, pola per bulan, dan kalimat insight otomatis
  *
@@ -48,7 +51,7 @@ class AnalisisTelurService
     // ENTRY POINT
     // ══════════════════════════════════════════════════════════════════════════
 
-    public function build(string $gran, string $dariStr, string $sampaiStr): array
+    public function build(string $gran, string $dariStr, string $sampaiStr, bool $withLabaBersih = false): array
     {
         if (!in_array($gran, ['harian', 'mingguan', 'bulanan'], true)) {
             $gran = 'harian';
@@ -73,7 +76,7 @@ class AnalisisTelurService
         // ── Omset per hari per jenis ────────────────────────────────────────
         $harian = [];
         foreach ($this->queryPenjualan($dari, $sampai) as $r) {
-            $harian[$r->tgl][$r->jenis] = ['omset' => (float) $r->omset, 'qty' => (float) $r->qty];
+            $harian[$r->tgl][$r->jenis] = ['omset' => (float) $r->omset, 'qty' => (float) $r->qty, 'hpp' => (float) $r->hpp];
         }
 
         $stok = $this->stok($dari, $sampai);
@@ -85,6 +88,7 @@ class AnalisisTelurService
         $bulanSum    = [];
         $bulanCnt    = [];
         $hariTerbaik = null;
+        $hariRugi    = 0;
 
         for ($d = $dari->copy(); $d->lte($sampai); $d->addDay()) {
             $tgl       = $d->toDateString();
@@ -93,8 +97,13 @@ class AnalisisTelurService
                 $jenisHari[$k] = $v;
             }
             $omsetHari = 0.0;
+            $hppHari   = 0.0;
             foreach ($jenisHari as $v) {
                 $omsetHari += $v['omset'];
+                $hppHari   += $v['hpp'];
+            }
+            if ($omsetHari > 0 && ($omsetHari - $hppHari) < 0) {
+                $hariRugi++;
             }
 
             [$key, $start, $end] = $this->bucket($gran, $d);
@@ -111,8 +120,10 @@ class AnalisisTelurService
             foreach ($jenisHari as $k => $v) {
                 $acc[$key]['jenis'][$k]['omset'] += $v['omset'];
                 $acc[$key]['jenis'][$k]['qty']   += $v['qty'];
+                $acc[$key]['jenis'][$k]['hpp']   += $v['hpp'];
                 $totalJenis[$k]['omset']         += $v['omset'];
                 $totalJenis[$k]['qty']           += $v['qty'];
+                $totalJenis[$k]['hpp']           += $v['hpp'];
             }
 
             $iso = $d->dayOfWeekIso;
@@ -131,10 +142,13 @@ class AnalisisTelurService
             }
         }
 
-        $total = 0.0;
+        $total    = 0.0;
+        $totalHpp = 0.0;
         foreach ($totalJenis as $v) {
-            $total += $v['omset'];
+            $total    += $v['omset'];
+            $totalHpp += $v['hpp'];
         }
+        $totalLaba = $total - $totalHpp;
 
         // ── Periode pembanding (panjang sama, tepat sebelum periode ini) ───
         $prevSampai = $dari->copy()->subDay();
@@ -142,11 +156,15 @@ class AnalisisTelurService
         $prevJenis  = $this->kosongJenis();
         foreach ($this->queryPenjualan($prevDari, $prevSampai) as $r) {
             $prevJenis[$r->jenis]['omset'] += (float) $r->omset;
+            $prevJenis[$r->jenis]['hpp']   += (float) $r->hpp;
         }
         $prevTotal = 0.0;
+        $prevHpp   = 0.0;
         foreach ($prevJenis as $v) {
             $prevTotal += $v['omset'];
+            $prevHpp   += $v['hpp'];
         }
+        $prevLabaTotal = $prevTotal - $prevHpp;
         $bp        = self::BULAN_PENDEK;
         $prevLabel = $prevDari->day . ' ' . $bp[$prevDari->month] . ' ' . $prevDari->year
             . ' – ' . $prevSampai->day . ' ' . $bp[$prevSampai->month] . ' ' . $prevSampai->year;
@@ -156,12 +174,16 @@ class AnalisisTelurService
         $points     = [];
         $prev       = null;
         $prevOmset  = 0.0;
+        $prevLaba   = null;
 
         foreach ($acc as $a) {
             $omset = 0.0;
+            $hpp   = 0.0;
             foreach ($a['jenis'] as $v) {
                 $omset += $v['omset'];
+                $hpp   += $v['hpp'];
             }
+            $laba = $omset - $hpp;
 
             $jenis = [];
             $naik  = null;
@@ -171,9 +193,14 @@ class AnalisisTelurService
                 $o = $a['jenis'][$k]['omset'];
                 $q = $a['jenis'][$k]['qty'];
 
+                $hj = $a['jenis'][$k]['hpp'];
+
                 $item = [
                     'omset'        => round($o, 2),
                     'qty'          => round($q, 2),
+                    'hpp'          => round($hj, 2),
+                    'laba'         => round($o - $hj, 2),
+                    'margin'       => $o > 0 ? round(($o - $hj) / $o * 100, 1) : null,
                     'persen'       => $omset > 0 ? round($o / $omset * 100, 1) : 0,
                     'delta'        => null,
                     'delta_persen' => null,
@@ -202,6 +229,10 @@ class AnalisisTelurService
                 'label'        => $label,
                 'short'        => $short,
                 'omset'        => round($omset, 2),
+                'hpp'          => round($hpp, 2),
+                'laba'         => round($laba, 2),
+                'margin'       => $omset > 0 ? round($laba / $omset * 100, 1) : null,
+                'laba_delta'   => $prevLaba !== null ? round($laba - $prevLaba, 2) : null,
                 'delta'        => $prev !== null ? round($omset - $prevOmset, 2) : null,
                 'delta_persen' => ($prev !== null && $prevOmset > 0) ? round(($omset - $prevOmset) / $prevOmset * 100, 1) : null,
                 'jenis'        => $jenis,
@@ -213,6 +244,7 @@ class AnalisisTelurService
 
             $prev      = $a['jenis'];
             $prevOmset = $omset;
+            $prevLaba  = $laba;
         }
 
         // ── Pola per hari ───────────────────────────────────────────────────
@@ -272,6 +304,9 @@ class AnalisisTelurService
                 'color'  => $meta['color'],
                 'omset'  => round($o, 2),
                 'qty'    => round($totalJenis[$k]['qty'], 2),
+                'hpp'    => round($totalJenis[$k]['hpp'], 2),
+                'laba'   => round($o - $totalJenis[$k]['hpp'], 2),
+                'margin' => $o > 0 ? round(($o - $totalJenis[$k]['hpp']) / $o * 100, 1) : null,
                 'persen' => $total > 0 ? round($o / $total * 100, 1) : 0,
                 'growth' => $po > 0 ? round(($o - $po) / $po * 100, 1) : null,
                 'delta'  => round($o - $po, 2),
@@ -280,6 +315,27 @@ class AnalisisTelurService
         }
 
         $growthTotal = $prevTotal > 0 ? round(($total - $prevTotal) / $prevTotal * 100, 1) : null;
+        $growthLaba  = $prevLabaTotal > 0 ? round(($totalLaba - $prevLabaTotal) / $prevLabaTotal * 100, 1) : null;
+
+        $labaBersih = null;
+        if ($withLabaBersih) {
+            try {
+                $lr         = app(LabaRugiRingkasanService::class);
+                $now        = $lr->hitung($dari, $sampai);
+                $prv        = $lr->hitung($prevDari, $prevSampai);
+                $labaBersih = $now + ['prev' => $prv['laba_bersih'], 'delta' => $now['laba_bersih'] - $prv['laba_bersih']];
+            } catch (\Throwable $e) {
+                Log::warning('Laba bersih Analisis Telur gagal dihitung: ' . $e->getMessage());
+            }
+        }
+
+        $laba = [
+            'total'  => round($totalLaba, 2),
+            'hpp'    => round($totalHpp, 2),
+            'margin' => $total > 0 ? round($totalLaba / $total * 100, 1) : null,
+            'growth' => $growthLaba,
+            'hari_rugi' => $hariRugi,
+        ];
 
         return [
             'dari'        => $dari->toDateString(),
@@ -304,11 +360,13 @@ class AnalisisTelurService
                 'prev_label'   => $prevLabel,
                 'prev_ada'     => $prevTotal > 0,
             ],
+            'laba'        => $laba,
+            'laba_bersih' => $labaBersih,
             'kategori' => $kategori,
             'hari'     => $hari,
             'bulan'    => $bulan,
             'stok'     => ['cards' => $stok['cards'], 'total' => $stok['total'], 'ada' => $stok['ada'], 'peti' => $stok['peti']],
-            'insight'  => $this->insight($total, $growthTotal, $hariTerbaik, $hari, $bulan, $kategori),
+            'insight'  => $this->insight($total, $growthTotal, $hariTerbaik, $hari, $bulan, $kategori, $laba, $labaBersih),
         ];
     }
 
@@ -332,6 +390,7 @@ class AnalisisTelurService
     {
         return DB::table('penjualan_details as d')
             ->join('penjualans as p', 'p.id', '=', 'd.penjualan_id')
+            ->leftJoin('barangs as b', 'b.id', '=', 'd.barang_id')
             ->whereBetween('p.tanggal', [$dari->copy()->startOfDay(), $sampai->copy()->endOfDay()])
             ->where(function ($q) {
                 $q->whereNull('p.status_transaksi')
@@ -344,7 +403,7 @@ class AnalisisTelurService
         $case = $this->caseJenis();
 
         return $this->basePenjualan($dari, $sampai)
-            ->selectRaw("DATE(p.tanggal) as tgl, {$case} as jenis, SUM(d.subtotal) as omset, SUM(d.qty) as qty")
+            ->selectRaw("DATE(p.tanggal) as tgl, {$case} as jenis, SUM(d.subtotal) as omset, SUM(d.qty) as qty, SUM(d.qty * COALESCE(b.harga_beli, 0)) as hpp")
             ->groupBy('tgl', 'jenis')
             ->get();
     }
@@ -372,7 +431,7 @@ class AnalisisTelurService
     {
         $out = [];
         foreach (self::JENIS as $k => $_) {
-            $out[$k] = ['omset' => 0.0, 'qty' => 0.0];
+            $out[$k] = ['omset' => 0.0, 'qty' => 0.0, 'hpp' => 0.0];
         }
 
         return $out;
@@ -625,7 +684,7 @@ class AnalisisTelurService
     // INSIGHT OTOMATIS
     // ══════════════════════════════════════════════════════════════════════════
 
-    private function insight(float $total, ?float $growth, ?array $hariTerbaik, array $hari, array $bulan, array $kategori): array
+    private function insight(float $total, ?float $growth, ?array $hariTerbaik, array $hari, array $bulan, array $kategori, array $laba = [], ?array $labaBersih = null): array
     {
         if ($total <= 0) {
             return ['Belum ada penjualan pada rentang tanggal ini.'];
@@ -670,6 +729,46 @@ class AnalisisTelurService
         }
         if ($terNaik) {
             $out[] = 'Yang paling naik dibanding periode sebelumnya: ' . $terNaik['label'] . ' (+' . $terNaik['growth'] . '%).';
+        }
+
+        // ── laba kotor penjualan (omset − HPP) ──
+        if ($laba) {
+            $arahLaba = $laba['total'] >= 0 ? 'laba kotor' : 'RUGI kotor';
+            $kalimat  = 'Dari omset tersebut, ' . $arahLaba . ' penjualan ' . self::rp(abs($laba['total']));
+            if ($laba['margin'] !== null) {
+                $kalimat .= ' (margin ' . $laba['margin'] . '%)';
+            }
+            if ($laba['growth'] !== null) {
+                $kalimat .= ', ' . ($laba['growth'] >= 0 ? 'naik ' : 'turun ') . abs($laba['growth']) . '% dibanding periode sebelumnya';
+            }
+            $out[] = $kalimat . '.';
+
+            // jenis yang dijual di bawah HPP / margin tertipis
+            $tertipis = null;
+            foreach ($kategori as $k) {
+                if ($k['key'] === 'lainnya' || $k['omset'] <= 0 || $k['margin'] === null) {
+                    continue;
+                }
+                if ($k['margin'] < 0) {
+                    $out[] = $k['label'] . ' dijual DI BAWAH HPP: rugi kotor ' . self::rp(abs($k['laba'])) . ' (margin ' . $k['margin'] . '%). Periksa potongan / harga jual di POS.';
+                } elseif ($tertipis === null || $k['margin'] < $tertipis['margin']) {
+                    $tertipis = $k;
+                }
+            }
+            if ($tertipis !== null && $tertipis['margin'] < 5) {
+                $out[] = 'Margin ' . $tertipis['label'] . ' tipis, hanya ' . $tertipis['margin'] . '% (laba kotor ' . self::rp($tertipis['laba']) . ').';
+            }
+
+            if (($laba['hari_rugi'] ?? 0) > 0) {
+                $out[] = 'Ada ' . $laba['hari_rugi'] . ' hari dengan laba kotor negatif (HPP lebih besar dari omset hari itu).';
+            }
+        }
+
+        // ── laba/rugi bersih dari jurnal ──
+        if ($labaBersih !== null) {
+            $lb = $labaBersih['laba_bersih'];
+            $out[] = 'Setelah beban operasional, hasil bersih periode ini ' . ($lb >= 0 ? 'LABA ' : 'RUGI ') . self::rp(abs($lb))
+                . ' (dari jurnal yang sudah diposting, sama dengan menu Laba Rugi Telur).';
         }
 
         foreach ($bulan as $b) {
