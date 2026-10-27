@@ -82,7 +82,8 @@ class SatpamTelurController extends Controller
 
         $qty = round((float) $v['qty'], 2);
 
-        $nota = DB::transaction(function () use ($v, $barangId, $user, $qty) {
+        // UBAH 1: tambahkan $cfg ke use (...)
+        $nota = DB::transaction(function () use ($v, $barangId, $user, $qty, $cfg) {
             $barang = Barang::with('satuan')->lockForUpdate()->find($barangId);
 
             if (! $barang || ! $barang->is_active) {
@@ -103,7 +104,9 @@ class SatpamTelurController extends Controller
 
             $penjualan = $this->buatNotaDenganRetry([
                 'tanggal'            => now(),
-                'nama_customer'      => $v['nama_customer'] ?? config('satpam.nama_customer_default'),
+                // UBAH 2: nama customer default per pabrik (Wijaya / Wahana)
+                'nama_customer'      => $v['nama_customer']
+                    ?? ($cfg['nama_customer'] ?? config('satpam.nama_customer_default')),
                 'is_member'          => false,
                 'metode_pembayaran'  => 'TUNAI',
                 'total'              => $total,

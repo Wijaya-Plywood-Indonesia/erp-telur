@@ -9,18 +9,20 @@ return [
     */
     'pabrik' => [
         'wijaya' => [
-            'api_key' => env('SATPAM_WIJAYA_API_KEY'),
-            'user_id' => env('SATPAM_WIJAYA_USER_ID'),
-            'barang'  => [
+            'api_key'       => env('SATPAM_WIJAYA_API_KEY'),
+            'user_id'       => env('SATPAM_WIJAYA_USER_ID'),
+            'nama_customer' => env('SATPAM_WIJAYA_NAMA_CUSTOMER', 'Wijaya'),
+            'barang'        => [
                 'petian' => env('SATPAM_WIJAYA_BARANG_PETIAN'),
                 'kiloan' => env('SATPAM_WIJAYA_BARANG_KILOAN'),
                 'bentes' => env('SATPAM_WIJAYA_BARANG_BENTES'),
             ],
         ],
         'wahana' => [
-            'api_key' => env('SATPAM_WAHANA_API_KEY'),
-            'user_id' => env('SATPAM_WAHANA_USER_ID'),
-            'barang'  => [
+            'api_key'       => env('SATPAM_WAHANA_API_KEY'),
+            'user_id'       => env('SATPAM_WAHANA_USER_ID'),
+            'nama_customer' => env('SATPAM_WAHANA_NAMA_CUSTOMER', 'Wahana'),
+            'barang'        => [
                 'petian' => env('SATPAM_WAHANA_BARANG_PETIAN'),
                 'kiloan' => env('SATPAM_WAHANA_BARANG_KILOAN'),
                 'bentes' => env('SATPAM_WAHANA_BARANG_BENTES'),
@@ -38,5 +40,6 @@ return [
     // Tolak transaksi kalau stok buku besar tidak cukup (sama seperti POS Filament).
     'cek_stok' => env('SATPAM_CEK_STOK', true),
 
+    // Dipakai kalau pabrik tidak punya 'nama_customer' sendiri
     'nama_customer_default' => 'Pelanggan Umum',
 ];
