@@ -8,11 +8,15 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class PenjualansTable
 {
@@ -74,6 +78,39 @@ class PenjualansTable
             ])
 
             ->defaultSort('created_at', 'desc')
+
+            ->filters([
+                // Validasi: Semua / Sudah divalidasi / Belum divalidasi
+                TernaryFilter::make('validated_by')
+                    ->label('Status Validasi')
+                    ->placeholder('Semua')
+                    ->trueLabel('Sudah divalidasi')
+                    ->falseLabel('Belum divalidasi')
+                    ->nullable(),
+
+                // Rentang tanggal nota
+                Filter::make('tanggal')
+                    ->label('Tanggal')
+                    ->form([
+                        DatePicker::make('dari')->label('Dari tanggal'),
+                        DatePicker::make('sampai')->label('Sampai tanggal'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when($data['dari'] ?? null, fn (Builder $q, $d) => $q->whereDate('tanggal', '>=', $d))
+                            ->when($data['sampai'] ?? null, fn (Builder $q, $d) => $q->whereDate('tanggal', '<=', $d));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $out = [];
+                        if (! empty($data['dari'])) {
+                            $out[] = 'Dari ' . \Carbon\Carbon::parse($data['dari'])->translatedFormat('d M Y');
+                        }
+                        if (! empty($data['sampai'])) {
+                            $out[] = 'Sampai ' . \Carbon\Carbon::parse($data['sampai'])->translatedFormat('d M Y');
+                        }
+                        return $out;
+                    }),
+            ])
 
             ->recordActions([
                 ViewAction::make(),

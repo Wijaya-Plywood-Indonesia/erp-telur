@@ -30,6 +30,8 @@ class Penjualan extends Model
         'toko_id',
         'bayar_tunai',
         'bayar_transfer',
+        'satpam_id',
+        'satpam_setoran_id',
     ];
 
     protected $casts = [
@@ -89,5 +91,5 @@ class Penjualan extends Model
         return $this->hasMany(ReturnPenjualan::class, 'no_nota', 'no_nota');
     }
 
-// Di dalam class ReturnPenjualan
-    }
+    // Di dalam class ReturnPenjualan
+}

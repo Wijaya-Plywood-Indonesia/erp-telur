@@ -4,6 +4,7 @@ return [
     /*
     | Satu blok per pabrik. Aplikasi mengirim X-Api-Key; server mencocokkannya ke blok di bawah,
     | lalu memakai user pos dan 3 barang milik pabrik itu.
+    | Jenis yang barangnya dikosongkan di .env tidak tampil di aplikasi (mis. bentes Wijaya).
     | Cari ID barang: php artisan tinker
     |   App\Models\Barang::where('nama_barang', 'like', '%telur%')->get(['id','nama_barang','harga_jual']);
     */
@@ -37,8 +38,12 @@ return [
         'bentes' => 'Telur Bentes',
     ],
 
-    // Tolak transaksi kalau stok buku besar tidak cukup (sama seperti POS Filament).
+    // Tolak transaksi kalau stok tersedia tidak cukup (sama seperti POS Filament).
     'cek_stok' => env('SATPAM_CEK_STOK', true),
+
+    // true = nota dari aplikasi tanpa token satpam ditolak. Aktifkan setelah semua HP
+    // sudah memakai versi baru dan diaktivasi. Selama false, aplikasi lama tetap jalan.
+    'wajib_token' => env('SATPAM_WAJIB_TOKEN', false),
 
     // Dipakai kalau pabrik tidak punya 'nama_customer' sendiri
     'nama_customer_default' => 'Pelanggan Umum',
