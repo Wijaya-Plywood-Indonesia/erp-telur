@@ -6,6 +6,8 @@ use App\Filament\Resources\Satpams\SatpamResource;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\Width;
+use App\Filament\Pages\RekapSetoran;
+use Filament\Actions\Action;
 
 class ListSatpams extends ListRecords
 {
@@ -17,9 +19,14 @@ class ListSatpams extends ListRecords
     }
 
     protected function getHeaderActions(): array
-    {
-        return [
-            CreateAction::make(),
-        ];
-    }
+{
+    return [
+        Action::make('preview_setoran')
+            ->label('Preview Setoran')
+            ->icon('heroicon-o-banknotes')
+            ->color('gray')
+            ->url(RekapSetoran::getUrl()),
+        CreateAction::make(),
+    ];
+}
 }
