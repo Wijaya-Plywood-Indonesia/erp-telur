@@ -67,6 +67,11 @@ class Penjualan extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function satpam()
+    {
+        return $this->belongsTo(Satpam::class, 'satpam_id');
+    }
+
     public function validator()
     {
         return $this->belongsTo(User::class, 'validated_by');

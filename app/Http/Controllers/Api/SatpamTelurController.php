@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Barang;
 use App\Models\DetailPenjualan;
+use App\Models\JurnalPembantuHeader;
 use App\Models\Penjualan;
 use App\Models\Satpam;
 use App\Models\SatpamPerangkat;
@@ -200,8 +201,8 @@ class SatpamTelurController extends Controller
                 $this->fail('Harga berubah, cek ulang lalu cetak lagi', 409, ['harga_baru' => $harga]);
             }
 
-            // Stok tersedia = stok buku besar dikurangi nota yang belum divalidasi
-            // (nota yang belum divalidasi belum memotong stok buku besar).
+            // Stok tersedia = stok buku besar dikurangi nota yang belum memotong buku besar
+            // (belum divalidasi, atau sudah divalidasi tapi jurnal pembantunya masih draft).
             if (config('satpam.cek_stok') && $this->stokTersedia($barang) < $qty) {
                 $this->fail("Stok {$barang->nama_barang} tidak mencukupi", 422);
             }
@@ -362,17 +363,26 @@ class SatpamTelurController extends Controller
     }
 
     /**
-     * Stok yang boleh dijual: stok buku besar dikurangi qty nota yang belum divalidasi
-     * (dan tidak dibatalkan). Nota satpam baru memotong stok buku besar setelah divalidasi LUNAS.
+     * Stok yang boleh dijual: stok buku besar dikurangi qty nota yang belum memotong buku besar:
+     *  - nota yang belum divalidasi, dan
+     *  - nota yang sudah divalidasi tapi jurnal pembantunya masih DRAFT
+     *    (belum diposting ke jurnal umum).
+     * Nota yang dibatalkan tidak dihitung.
      */
     private function stokTersedia(Barang $barang): float
     {
         $pending = (float) DetailPenjualan::where('barang_id', $barang->id)
             ->whereHas('penjualan', function ($q) {
-                $q->whereNull('validated_by')
-                    ->where(function ($w) {
+                $q->where(function ($w) {
                         $w->whereNull('status_transaksi')
                             ->orWhere('status_transaksi', '!=', 'DIBATALKAN');
+                    })
+                    ->where(function ($w) {
+                        $w->whereNull('validated_by')
+                            ->orWhereIn('no_nota', JurnalPembantuHeader::query()
+                                ->select('no_dokumen')
+                                ->where('modul_asal', 'penjualan_telur')
+                                ->where('status', JurnalPembantuHeader::STATUS_DRAFT));
                     });
             })
             ->sum('qty');

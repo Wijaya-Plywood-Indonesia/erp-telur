@@ -66,7 +66,17 @@ class PenjualansTable
 
                 TextColumn::make('nama_customer')
                     ->searchable()
-                    ->placeholder('Tidak Dicatat'),
+                    ->placeholder('Tidak Dicatat')
+                    // Nama satpam: huruf kecil, satu baris dengan customer (tidak menambah tinggi baris)
+                    ->html()
+                    ->formatStateUsing(function ($state, $record) {
+                        $out = e($state);
+                        if ($record->satpam?->nama) {
+                            $out .= ' <span style="font-size:10px;color:#9ca3af;white-space:nowrap">· '
+                                . e($record->satpam->nama) . '</span>';
+                        }
+                        return new \Illuminate\Support\HtmlString($out);
+                    }),
 
                 TextColumn::make('metode_pembayaran')
                     ->toggleable(isToggledHiddenByDefault: true),
