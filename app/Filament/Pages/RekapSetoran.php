@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\DetailPenjualan;
 use App\Models\Penjualan;
 use App\Models\Satpam;
 use App\Models\SatpamSetoran;
@@ -106,7 +107,16 @@ class RekapSetoran extends Page
             ->get()
             ->groupBy('satpam_setoran_id');
 
-        $items = $setorans->map(function ($s) use ($rekapPerSetoran, $namaSatpam) {
+        // Jumlah terjual per jenis barang (petian, kiloan, ...) untuk setiap setoran.
+        $terjualPerSetoran = DetailPenjualan::query()
+            ->join('penjualans', 'penjualans.id', '=', 'penjualan_details.penjualan_id')
+            ->whereIn('penjualans.satpam_setoran_id', $setorans->pluck('id'))
+            ->selectRaw('penjualans.satpam_setoran_id as setoran_id, penjualan_details.nama_barang, MAX(penjualan_details.satuan) as satuan, SUM(penjualan_details.qty) as qty')
+            ->groupBy('penjualans.satpam_setoran_id', 'penjualan_details.nama_barang')
+            ->get()
+            ->groupBy('setoran_id');
+
+        $items = $setorans->map(function ($s) use ($rekapPerSetoran, $namaSatpam, $terjualPerSetoran) {
             $rows = $rekapPerSetoran->get($s->id, collect());
 
             return [
@@ -116,6 +126,7 @@ class RekapSetoran extends Page
                 'awal'         => $rows->min('awal'),
                 'akhir'        => $rows->max('akhir'),
                 'ditutup_pada' => $s->ditutup_pada,
+                'terjual'      => $this->susunTerjual($terjualPerSetoran->get($s->id, collect())),
                 'rekap'        => $rows->sortByDesc('total')->map(fn ($r) => [
                     'nama'  => $r->satpam_id ? ($namaSatpam[$r->satpam_id] ?? 'Satpam #' . $r->satpam_id) : 'Tanpa satpam',
                     'nota'  => (int) $r->nota,
@@ -125,6 +136,27 @@ class RekapSetoran extends Page
         })->all();
 
         return ['items' => $items, 'halaman' => $hal, 'total_halaman' => $totalHalaman, 'jumlah' => $jumlah];
+    }
+
+    /** Urutkan & beri label: Petian, Kiloan, Bentes, lalu lainnya. */
+    private function susunTerjual($rows): array
+    {
+        $label = function (string $nama): array {
+            $n = strtolower($nama);
+            return match (true) {
+                str_contains($n, 'peti')   => [1, 'Petian'],
+                str_contains($n, 'kiloan') => [2, 'Kiloan'],
+                str_contains($n, 'bentes') => [3, 'Bentes'],
+                default                    => [9, $nama],
+            };
+        };
+
+        return $rows->map(function ($r) use ($label) {
+            [$urut, $nama] = $label((string) $r->nama_barang);
+            $qty = rtrim(rtrim(number_format((float) $r->qty, 2, ',', '.'), '0'), ',');
+
+            return ['urut' => $urut, 'label' => $nama, 'qty' => $qty, 'satuan' => $r->satuan];
+        })->sortBy('urut')->values()->all();
     }
 
     /** Daftar nota untuk satu dropdown. Hanya dipanggil kalau dropdown dibuka. */

@@ -3,12 +3,14 @@
         $d = $this->data();
         $fmt = fn ($n) => 'Rp ' . number_format((float) $n, 0, ',', '.');
         $tgl = fn ($x) => $x ? \Carbon\Carbon::parse($x)->translatedFormat('d M Y H:i') : '-';
-        $rentang = function ($a, $b) {
-            if (! $a) return '';
-            $a = \Carbon\Carbon::parse($a); $b = \Carbon\Carbon::parse($b);
-            return $a->isSameDay($b)
-                ? $a->translatedFormat('d M Y')
-                : $a->translatedFormat('d M') . ' – ' . $b->translatedFormat('d M Y');
+        // Satu baris: "30 Okt – 31 Okt 2026 08:01" (awal siklus – waktu tutup buku)
+        $judul = function ($awal, $tutup) {
+            $t = \Carbon\Carbon::parse($tutup);
+            if (! $awal) return $t->translatedFormat('d M Y H:i');
+            $a = \Carbon\Carbon::parse($awal);
+            if ($a->isSameDay($t)) return $t->translatedFormat('d M Y H:i');
+            return ($a->year === $t->year ? $a->translatedFormat('d M') : $a->translatedFormat('d M Y'))
+                . ' – ' . $t->translatedFormat('d M Y H:i');
         };
         $garis = 'color-mix(in srgb, currentColor 12%, transparent)';
         $kotak = "border:1px solid $garis;border-radius:.75rem;padding:1rem;";
@@ -42,12 +44,18 @@
                 @forelse ($r['items'] as $c)
                     <div style="{{ $kotak }}">
                         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem">
-                            <div>
-                                <div style="font-weight:600">{{ $tgl($c['ditutup_pada']) }}</div>
-                                <div style="{{ $redup }}">{{ $rentang($c['awal'], $c['akhir']) }} · {{ $c['nota'] }} nota</div>
-                            </div>
+                            <div style="font-weight:600">{{ $judul($c['awal'], $c['ditutup_pada']) }}</div>
                             <div style="font-size:1.35rem;font-weight:700;white-space:nowrap">{{ $fmt($c['total']) }}</div>
                         </div>
+
+                        {{-- Terjual per jenis --}}
+                        @if (! empty($c['terjual']))
+                            <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem">
+                                @foreach ($c['terjual'] as $t)
+                                    <x-filament::badge color="gray" size="lg">{{ $t['label'] }}: {{ $t['qty'] }} {{ $t['satuan'] }}</x-filament::badge>
+                                @endforeach
+                            </div>
+                        @endif
 
                         {{-- Rekap per satpam --}}
                         <table style="width:100%;border-collapse:collapse;font-size:.9rem;margin-top:.5rem">
