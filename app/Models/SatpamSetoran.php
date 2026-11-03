@@ -37,7 +37,7 @@ class SatpamSetoran extends Model
         return $this->belongsTo(User::class, 'dibuka_oleh');
     }
 
-    /** Rincian per satpam: nota yang sudah masuk setoran ini, atau (kalau masih DIBUKA) yang akan ikut. */
+    /** Rincian per satpam: nota yang sudah masuk setoran ini, atau (kalau masih DIBUKA) yang sedang terhitung. */
     public function rincianTeks(): string
     {
         if ($this->status === 'SELESAI') {
@@ -46,8 +46,7 @@ class SatpamSetoran extends Model
 
         if ($this->status === 'DIBUKA') {
             return Satpam::rincianTeks(
-                Satpam::penjualanTerbukaPabrik((string) $this->pabrik)
-                    ->where('id', '<=', $this->sampai_penjualan_id)
+                Satpam::batasiSetoran(Satpam::penjualanTerbukaPabrik((string) $this->pabrik), $this)
             );
         }
 

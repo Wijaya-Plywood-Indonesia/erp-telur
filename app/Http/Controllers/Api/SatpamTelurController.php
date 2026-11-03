@@ -99,6 +99,7 @@ class SatpamTelurController extends Controller
     /**
      * GET /api/satpam/beranda
      * Satu panggilan untuk layar utama: harga + stok tersedia + status setoran.
+     * Item bentes membawa blok "ceprot" (kalau diaktifkan) untuk pilihan di layar input.
      */
     public function beranda(Request $request)
     {
@@ -118,20 +119,35 @@ class SatpamTelurController extends Controller
             if (! $b) {
                 continue;
             }
-            $data[] = [
+
+            $item = [
                 'kode'   => $kode,
                 'nama'   => config("satpam.label.$kode", $b->nama_barang),
                 'satuan' => $b->satuan?->nama_satuan ?? '',
                 'harga'  => (float) $b->harga_jual,
                 'stok'   => $this->stokTersedia($b),
             ];
+
+            if ($kode === 'bentes' && config('satpam.ceprot.aktif', true)) {
+                $kgPer = (float) config('satpam.ceprot.kg_per_plastik', 0.5);
+                $item['ceprot'] = [
+                    'harga'          => (float) config('satpam.ceprot.harga_plastik', 6000),
+                    'satuan'         => 'Plastik',
+                    'kg_per_plastik' => $kgPer,
+                    'stok'           => $kgPer > 0
+                        ? (float) max(0, floor(round($item['stok'] / $kgPer, 6)))
+                        : 0.0,
+                ];
+            }
+
+            $data[] = $item;
         }
 
         $dibuka = $satpam->setoranDibuka();
         $totalDibuka = null;
         $notaDibuka = null;
         if ($dibuka) {
-            $q = $satpam->penjualanTerbukaPabrikIni()->where('id', '<=', $dibuka->sampai_penjualan_id);
+            $q = Satpam::batasiSetoran($satpam->penjualanTerbukaPabrikIni(), $dibuka);
             $totalDibuka = round((float) (clone $q)->sum('total'), 2);
             $notaDibuka  = (int) (clone $q)->count();
         }
@@ -152,12 +168,16 @@ class SatpamTelurController extends Controller
 
     /**
      * POST /api/satpam/nota
-     * Body: jenis (petian|kiloan|bentes), qty, harga_ditampilkan, nama_customer?
+     * Body: jenis (petian|kiloan|bentes|ceprot), qty, harga_ditampilkan, nama_customer?
      *
      * Harga & total dihitung di server. Kalau harga di layar HP beda dengan harga
      * sekarang, balas 409 + harga_baru supaya satpam cek ulang sebelum cetak.
      * Nota dibuat berstatus BELUM DIBAYAR; jurnal & stok terbentuk saat admin
      * memvalidasi LUNAS di Filament (alur yang sama seperti POS).
+     *
+     * Ceprot: qty = jumlah plastik (bilangan bulat). Disimpan sebagai Telur Bentes dengan
+     * qty = plastik x kg_per_plastik, harga normal bentes, dan potongan per kg = harga bentes - harga_kg,
+     * sehingga subtotal = plastik x harga_plastik.
      */
     public function store(Request $request)
     {
@@ -176,7 +196,14 @@ class SatpamTelurController extends Controller
             'nama_customer'     => ['nullable', 'string', 'max:100'],
         ]);
 
-        $barangId = $cfg['barang'][$v['jenis']] ?? null;
+        $ceprot = $v['jenis'] === 'ceprot';
+
+        if ($ceprot && ! config('satpam.ceprot.aktif', true)) {
+            return response()->json(['message' => 'Ceprot tidak tersedia'], 422);
+        }
+
+        // Ceprot memakai barang bentes milik pabrik (Wijaya tidak punya bentes, jadi otomatis ditolak).
+        $barangId = $cfg['barang'][$ceprot ? 'bentes' : $v['jenis']] ?? null;
         if (! $barangId) {
             return response()->json(['message' => 'Jenis telur belum dikonfigurasi di server'], 422);
         }
@@ -188,14 +215,34 @@ class SatpamTelurController extends Controller
 
         $qty = round((float) $v['qty'], 2);
 
-        $nota = DB::transaction(function () use ($v, $barangId, $user, $qty, $cfg, $satpam) {
+        if ($ceprot && floor($qty) != $qty) {
+            return response()->json(['message' => 'Jumlah ceprot harus bilangan bulat (plastik)'], 422);
+        }
+
+        $nota = DB::transaction(function () use ($v, $barangId, $user, $qty, $cfg, $satpam, $ceprot) {
             $barang = Barang::with('satuan')->lockForUpdate()->find($barangId);
 
             if (! $barang || ! $barang->is_active) {
                 $this->fail('Barang tidak ditemukan / tidak aktif', 422);
             }
 
-            $harga = (float) $barang->harga_jual;
+            $hargaBarang = (float) $barang->harga_jual;
+
+            if ($ceprot) {
+                $cp = (array) config('satpam.ceprot', []);
+                $kgPerPlastik = (float) ($cp['kg_per_plastik'] ?? 0.5);
+                $harga        = (float) ($cp['harga_plastik'] ?? 6000);   // harga per plastik (tetap)
+                $qtyKg        = round($qty * $kgPerPlastik, 2);           // yang mengurangi stok bentes
+                $hargaAwal    = $hargaBarang;
+                $potongan     = max(0, round($hargaBarang - (float) ($cp['harga_kg'] ?? 12000), 2));
+                $namaStok     = 'Ceprot';
+            } else {
+                $harga     = $hargaBarang;
+                $qtyKg     = $qty;
+                $hargaAwal = $hargaBarang;
+                $potongan  = 0;
+                $namaStok  = $barang->nama_barang;
+            }
 
             if (abs($harga - (float) $v['harga_ditampilkan']) > 0.009) {
                 $this->fail('Harga berubah, cek ulang lalu cetak lagi', 409, ['harga_baru' => $harga]);
@@ -203,16 +250,25 @@ class SatpamTelurController extends Controller
 
             // Stok tersedia = stok buku besar dikurangi nota yang belum memotong buku besar
             // (belum divalidasi, atau sudah divalidasi tapi jurnal pembantunya masih draft).
-            if (config('satpam.cek_stok') && $this->stokTersedia($barang) < $qty) {
-                $this->fail("Stok {$barang->nama_barang} tidak mencukupi", 422);
+            if (config('satpam.cek_stok') && $this->stokTersedia($barang) < $qtyKg) {
+                $this->fail("Stok {$namaStok} tidak mencukupi", 422);
             }
 
             $total = round($qty * $harga, 2);
 
+            $keterangan = $satpam
+                ? 'Dibuat dari aplikasi satpam: ' . $satpam->nama
+                : 'Dibuat dari aplikasi satpam';
+            if ($ceprot) {
+                $keterangan .= ' | Ceprot ' . $qty . ' plastik (' . $qtyKg . ' kg bentes)';
+            }
+
             $penjualan = $this->buatNotaDenganRetry([
                 'tanggal'            => now(),
                 'nama_customer'      => $v['nama_customer']
-                    ?? ($cfg['nama_customer'] ?? config('satpam.nama_customer_default')),
+                    ?? ($ceprot
+                        ? 'Ceprot'
+                        : ($cfg['nama_customer'] ?? config('satpam.nama_customer_default'))),
                 'is_member'          => false,
                 'metode_pembayaran'  => 'TUNAI',
                 'total'              => $total,
@@ -220,9 +276,7 @@ class SatpamTelurController extends Controller
                 'bayar_tunai'        => $total,
                 'bayar_transfer'     => 0,
                 'kembalian'          => 0,
-                'keterangan'         => $satpam
-                    ? 'Dibuat dari aplikasi satpam: ' . $satpam->nama
-                    : 'Dibuat dari aplikasi satpam',
+                'keterangan'         => $keterangan,
                 'user_id'            => $user->id,
                 'satpam_id'          => $satpam?->id,
             ]);
@@ -232,10 +286,10 @@ class SatpamTelurController extends Controller
                 'barang_id'    => $barang->id,
                 'nama_barang'  => $barang->nama_barang,
                 'satuan'       => $barang->satuan?->nama_satuan,
-                'qty'          => $qty,
-                'harga_awal'   => $harga,
-                'harga_jual'   => $harga,
-                'potongan'     => 0,
+                'qty'          => $qtyKg,
+                'harga_awal'   => $hargaAwal,
+                'harga_jual'   => $hargaAwal,
+                'potongan'     => $potongan,
                 'subtotal'     => $total,
             ]);
 
@@ -244,8 +298,8 @@ class SatpamTelurController extends Controller
                 'tanggal'     => $penjualan->tanggal->format('d/m/Y H:i'),
                 'toko'        => $user->tokoUtama?->toko?->nama_toko,
                 'kasir'       => $satpam?->nama ?? $user->name,
-                'nama_barang' => config("satpam.label.{$v['jenis']}", $barang->nama_barang),
-                'satuan'      => $barang->satuan?->nama_satuan ?? '',
+                'nama_barang' => $ceprot ? 'Ceprot' : config("satpam.label.{$v['jenis']}", $barang->nama_barang),
+                'satuan'      => $ceprot ? 'Plastik' : ($barang->satuan?->nama_satuan ?? ''),
                 'qty'         => $qty,
                 'harga'       => $harga,
                 'total'       => $total,
@@ -258,7 +312,8 @@ class SatpamTelurController extends Controller
     /**
      * POST /api/satpam/tutup-buku
      * Body: total_konfirmasi (angka yang dilihat petugas ruko di layar).
-     * Hanya berhasil kalau kantor sudah membuka kuncinya di ERP.
+     * Hanya berhasil kalau kantor sudah membuka kuncinya (manual di ERP atau jadwal otomatis).
+     * Semua nota yang sudah masuk sampai saat ini ikut ditutup; nota sesudahnya masuk siklus berikutnya.
      */
     public function tutupBuku(Request $request)
     {
@@ -279,14 +334,15 @@ class SatpamTelurController extends Controller
                 $this->fail('Tutup buku belum dibuka oleh kantor, atau sudah ditutup', 403);
             }
 
-            $q = $satpam->penjualanTerbukaPabrikIni()->where('id', '<=', $setoran->sampai_penjualan_id);
-            $total = round((float) (clone $q)->sum('total'), 2);
+            // Ambil daftar nota dulu, lalu hitung total dari daftar itu: nota yang masuk
+            // persis saat ini tidak bisa membuat total dan nota yang ditutup berbeda.
+            $ids = Satpam::batasiSetoran($satpam->penjualanTerbukaPabrikIni(), $setoran)->pluck('id');
+            $total = round((float) Penjualan::whereIn('id', $ids)->sum('total'), 2);
 
             if (abs($total - (float) $v['total_konfirmasi']) > 0.009) {
                 $this->fail('Total berubah, periksa lagi', 409, ['total_baru' => $total]);
             }
 
-            $ids = (clone $q)->pluck('id');
             Penjualan::whereIn('id', $ids)->update(['satpam_setoran_id' => $setoran->id]);
 
             $setoran->update([

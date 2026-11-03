@@ -31,12 +31,30 @@ return [
         ],
     ],
 
-    // Label tombol di aplikasi
+    // Label tombol di aplikasi. "ceprot" bukan kartu sendiri: ia muncul sebagai pilihan
+    // di dalam layar input Bentes (hanya pabrik yang punya barang bentes).
     'label' => [
         'petian' => 'Telur Petian',
         'kiloan' => 'Telur Kiloan',
         'bentes' => 'Telur Bentes',
+        'ceprot' => 'Ceprot',
     ],
+
+    /*
+    | Ceprot = telur pecah dalam kantong plastik, stoknya mengikuti Telur Bentes.
+    |  - harga_plastik  : harga jual per plastik (tetap)
+    |  - kg_per_plastik : berapa kg stok bentes yang berkurang per plastik
+    |  - harga_kg       : harga per kg ceprot; selisih dari harga bentes dicatat sebagai potongan
+    */
+    'ceprot' => [
+        'aktif'          => env('SATPAM_CEPROT', true),
+        'harga_plastik'  => (float) env('SATPAM_CEPROT_HARGA', 6000),
+        'kg_per_plastik' => (float) env('SATPAM_CEPROT_KG', 0.5),
+        'harga_kg'       => (float) env('SATPAM_CEPROT_HARGA_KG', 12000),
+    ],
+
+    // Jam tombol setoran dibuka otomatis tiap hari (WIB). Kosongkan untuk mematikan.
+    'buka_otomatis' => env('SATPAM_BUKA_OTOMATIS', '07:30'),
 
     // Tolak transaksi kalau stok tersedia tidak cukup (sama seperti POS Filament).
     'cek_stok' => env('SATPAM_CEK_STOK', true),
