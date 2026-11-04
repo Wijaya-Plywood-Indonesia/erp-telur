@@ -65,10 +65,11 @@ class PreviewExport extends Page
         // Gunakan filter tanggal agar data di tabel preview sinkron
         $penjualans = Penjualan::query()
             ->whereNotNull('validated_by')
-            ->whereBetween('created_at', [
+            ->sudahDisetor()   // nota satpam baru tampil setelah setorannya ditutup
+            ->tanggalPembukuanAntara(
                 (string) $this->startDate.' 00:00:00',
                 (string) $this->endDate.' 23:59:59',
-            ])
+            )
             ->with(['user', 'validator'])
             ->latest()
             ->get();
@@ -79,7 +80,9 @@ class PreviewExport extends Page
             ->map(function ($p) {
                 return [
                     'no_nota' => $p->no_nota,
-                    'tanggal' => $p->tanggal,
+                    'tanggal' => $p->tanggal_laporan,
+                    // Tanggal nota asli, hanya untuk nota satpam yang sudah disetor (tanggal pembukuan terisi).
+                    'tanggal_nota' => $p->tanggal_pembukuan ? $p->tanggal : null,
                     'nama_customer' => $p->nama_customer,
                     'member' => $p->is_member ? 'MEMBER' : 'REGULAR',
                     'alamat' => $p->alamat,
@@ -171,16 +174,19 @@ class PreviewExport extends Page
     {
         $this->laporanGabungan = Penjualan::query()
             ->whereNotNull('validated_by')
-            ->whereBetween('created_at', [
+            ->sudahDisetor()   // nota satpam baru tampil setelah setorannya ditutup
+            ->tanggalPembukuanAntara(
                 (string) $this->startDate.' 00:00:00',
                 (string) $this->endDate.' 23:59:59',
-            ])
+            )
             ->with(['user', 'validator'])
             ->get()
             ->map(function ($p) {
                 return [
                     'no_nota' => $p->no_nota,
-                    'tanggal' => $p->tanggal,
+                    'tanggal' => $p->tanggal_laporan,
+                    // Tanggal nota asli, hanya untuk nota satpam yang sudah disetor (tanggal pembukuan terisi).
+                    'tanggal_nota' => $p->tanggal_pembukuan ? $p->tanggal : null,
                     'nama_customer' => $p->nama_customer,
                     'kasir' => $p->user?->name,
                     'status_transaksi' => $p->status_transaksi,

@@ -19,6 +19,14 @@ class ViewPenjualan extends ViewRecord
 {
     protected static string $resource = PenjualanResource::class;
 
+    /** Nota satpam yang setorannya belum ditutup (aturan bisa dimatikan lewat SATPAM_VALIDASI_SETELAH_SETOR=false). */
+    private static function notaBelumDisetor($record): bool
+    {
+        return (bool) config('satpam.validasi_setelah_setor', true)
+            && ! empty($record->satpam_id)
+            && empty($record->satpam_setoran_id);
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -38,6 +46,9 @@ class ViewPenjualan extends ViewRecord
                     && !filament()->auth()->user()->hasRole('super_admin')
                 )
                 ->modalHeading('Validasi Transaksi')
+                ->modalDescription(fn ($record) => self::notaBelumDisetor($record)
+                    ? 'PERHATIAN: nota ini dari satpam dan setorannya belum ditutup di HP. Tunggu sampai setoran ditutup, baru divalidasi (membatalkan nota tetap boleh).'
+                    : null)
                 ->modalSubmitActionLabel('Simpan Validasi')
                 ->form([
                     TextInput::make('validator_name')
@@ -71,6 +82,16 @@ class ViewPenjualan extends ViewRecord
                     if (!empty($record->validated_by)) {
                         Notification::make()
                             ->title('Transaksi sudah divalidasi')
+                            ->warning()
+                            ->send();
+                        return;
+                    }
+
+                    // Nota satpam baru boleh divalidasi setelah setorannya ditutup di HP.
+                    if (self::notaBelumDisetor($record) && $data['status_transaksi'] !== 'DIBATALKAN') {
+                        Notification::make()
+                            ->title('Belum bisa divalidasi')
+                            ->body('Nota dari satpam ini baru bisa divalidasi setelah setorannya ditutup di HP satpam.')
                             ->warning()
                             ->send();
                         return;

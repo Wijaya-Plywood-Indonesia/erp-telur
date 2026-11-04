@@ -1,7 +1,7 @@
 {{-- Daftar nota dalam satu siklus setoran --}}
 <div style="margin-top:.6rem;overflow:auto;max-height:340px">
     <table style="width:100%;border-collapse:collapse;font-size:.82rem">
-        <thead style="position:sticky;top:0;background:inherit">
+        <thead>
             <tr style="opacity:.6;text-align:left">
                 <th style="{{ $sel }}">No nota</th>
                 <th style="{{ $sel }}">Tanggal</th>

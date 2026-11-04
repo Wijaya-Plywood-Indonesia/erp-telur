@@ -62,10 +62,11 @@ class DownloadExcel extends Page
     {
         $query = Penjualan::query()
             ->whereNotNull('validated_by')
-            ->whereBetween('created_at', [
+            ->sudahDisetor()
+            ->tanggalPembukuanAntara(
                 $startDate . ' 00:00:00',
                 $endDate . ' 23:59:59'
-            ])
+            )
             ->with(['user', 'validator'])
             ->latest()
             ->get();
@@ -75,7 +76,7 @@ class DownloadExcel extends Page
             
             return [
                 'no_nota' => $p->no_nota,
-                'tanggal' => $p->tanggal,
+                'tanggal' => $p->tanggal_laporan,
                 'nama_customer' => $p->nama_customer,
                 'member' => $p->is_member ? 'MEMBER' : 'REGULAR',
                 'alamat' => $p->alamat,

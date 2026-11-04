@@ -10,6 +10,8 @@ use App\Models\Penjualan;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Tabs\Tab;
+use Illuminate\Database\Eloquent\Builder;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ListPenjualans extends ListRecords
@@ -63,6 +65,34 @@ class ListPenjualans extends ListRecords
         }
     }
     protected static string $resource = PenjualanResource::class;
+
+    /**
+     * Urutan tab:
+     *  - Semua            : seluruh nota (tab default)
+     *  - Menunggu setoran : nota satpam yang setorannya belum ditutup (belum boleh divalidasi)
+     *  - Perlu divalidasi : yang boleh divalidasi sekarang (nota ruko + nota satpam yang sudah disetor)
+     */
+    public function getTabs(): array
+    {
+        return [
+            'semua' => Tab::make('Semua'),
+
+            'menunggu' => Tab::make('Menunggu setoran')
+                ->badge(Penjualan::menungguSetoran()->count())
+                ->badgeColor('gray')
+                ->modifyQueryUsing(fn (Builder $query) => $query->menungguSetoran()),
+
+            'perlu' => Tab::make('Perlu divalidasi')
+                ->badge(Penjualan::perluValidasi()->count())
+                ->badgeColor('warning')
+                ->modifyQueryUsing(fn (Builder $query) => $query->perluValidasi()),
+        ];
+    }
+
+    public function getDefaultActiveTab(): string | int | null
+    {
+        return 'semua';
+    }
 
     protected function getHeaderActions(): array
     {

@@ -112,7 +112,9 @@ class DetailsRelationManager extends RelationManager
                             ->label('Qty')
                             ->numeric()
                             ->default(1)
-                            ->minValue(1)
+                            // REVISI: sebelumnya minValue(1). Nota ceprot dari aplikasi satpam
+                            // tersimpan 0,5 kg per plastik, jadi 0,5 tidak boleh ditolak saat diedit.
+                            ->minValue(0.01)
                             ->required()
                             ->live(onBlur: true) // 🔥 Menambahkan Live agar reaktif
                             ->afterStateUpdated(
@@ -225,11 +227,14 @@ class DetailsRelationManager extends RelationManager
                     ->searchable()
                     ->sortable(),
 
-                // Qty dan satuan digabung: "1 Ekor", "35 Peti"
+                // Qty dan satuan digabung: "1 Ekor", "35 Peti", "0,5 Kg"
+                // REVISI: sebelumnya number_format(..., 0) sehingga 0,5 tampil "1".
+                // Sekarang desimal tampil bila ada, dan ",00" dibuang.
                 TextColumn::make('qty')
                     ->label('Qty')
                     ->formatStateUsing(fn ($state, $record): string => trim(
-                        number_format((float) $state, 0, ',', '.') . ' ' . ($record->satuan ?? '')
+                        rtrim(rtrim(number_format((float) $state, 2, ',', '.'), '0'), ',')
+                        . ' ' . ($record->satuan ?? '')
                     ))
                     ->alignRight(),
 

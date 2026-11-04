@@ -45,13 +45,37 @@ class PenjualansTable
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                // Validator + petunjuk tindakan admin:
+                //  - nama validator (hijau)  : sudah divalidasi
+                //  - "Perlu divalidasi"      : boleh divalidasi sekarang (nota ruko, atau nota satpam yang sudah disetor)
+                //  - "Tunggu setoran"        : nota satpam yang setorannya belum ditutup, JANGAN divalidasi dulu
                 TextColumn::make('validator.name')
                     ->label('Validator')
                     ->sortable()
                     ->searchable()
-                    ->placeholder('Belum Divalidasi') // Menampilkan teks jika belum ada yang validasi
-                    ->badge() // Opsional: menjadikannya badge agar lebih menonjol
-                    ->color(fn($state) => $state ? 'success' : 'gray') // Warna hijau jika ada validator, abu-abu jika belum
+                    ->state(function ($record) {
+                        if ($record->validator?->name) {
+                            return $record->validator->name;
+                        }
+
+                        return match ($record->status_validasi) {
+                            'dibatalkan'     => 'Dibatalkan',
+                            'tunggu_setoran' => 'Tunggu setoran',
+                            default          => 'Perlu divalidasi',
+                        };
+                    })
+                    ->badge()
+                    ->color(function ($record) {
+                        if ($record->validator?->name) {
+                            return 'success';
+                        }
+
+                        return match ($record->status_validasi) {
+                            'dibatalkan'     => 'danger',
+                            'tunggu_setoran' => 'gray',
+                            default          => 'warning',
+                        };
+                    })
                     ->toggleable(),
 
                 TextColumn::make('tanggal')->dateTime()->sortable(),

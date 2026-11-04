@@ -190,7 +190,11 @@
                         @forelse ($item['data_penjualan_detail'] as $detail)
                             <tr>
                                 <td class="text-center" style="font-family: monospace; font-weight: bold;">{{ $item['no_nota'] }}</td>
-                                <td class="text-center">{{ $item['tanggal'] }}</td>
+                                <td class="text-center">{{ ! empty($item['tanggal_nota']) ? \Carbon\Carbon::parse($item['tanggal'])->format('Y-m-d') : $item['tanggal'] }}
+                                @if (! empty($item['tanggal_nota']))
+                                    <div style="font-size:10px;color:#6b7280;font-weight:normal">Dijual: {{ $item['tanggal_nota'] }}</div>
+                                @endif
+                            </td>
                                 <td>{{ $item['nama_customer'] }}</td>
 
                                 @if($viewType == 'full' || $viewType == 'main')
@@ -222,7 +226,11 @@
                     @else
                         <tr>
                             <td class="text-center" style="font-family: monospace; font-weight: bold;">{{ $item['no_nota'] }}</td>
-                            <td class="text-center">{{ $item['tanggal'] }}</td>
+                            <td class="text-center">{{ ! empty($item['tanggal_nota']) ? \Carbon\Carbon::parse($item['tanggal'])->format('Y-m-d') : $item['tanggal'] }}
+                                @if (! empty($item['tanggal_nota']))
+                                    <div style="font-size:10px;color:#6b7280;font-weight:normal">Dijual: {{ $item['tanggal_nota'] }}</div>
+                                @endif
+                            </td>
                             <td>{{ $item['nama_customer'] }}</td>
                             <td class="text-center">
                                 <span class="badge {{ $item['member'] == 'MEMBER' ? 'badge-member' : 'badge-regular' }}">

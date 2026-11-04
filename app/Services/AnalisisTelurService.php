@@ -391,7 +391,11 @@ class AnalisisTelurService
         return DB::table('penjualan_details as d')
             ->join('penjualans as p', 'p.id', '=', 'd.penjualan_id')
             ->leftJoin('barangs as b', 'b.id', '=', 'd.barang_id')
-            ->whereBetween('p.tanggal', [$dari->copy()->startOfDay(), $sampai->copy()->endOfDay()])
+            ->whereRaw('COALESCE(p.tanggal_pembukuan, p.tanggal) BETWEEN ? AND ?', [$dari->copy()->startOfDay(), $sampai->copy()->endOfDay()])
+            ->where(function ($q) {
+                // nota satpam baru dihitung setelah setorannya ditutup
+                $q->whereNull('p.satpam_id')->orWhereNotNull('p.satpam_setoran_id');
+            })
             ->where(function ($q) {
                 $q->whereNull('p.status_transaksi')
                     ->orWhereNotIn('p.status_transaksi', self::STATUS_BATAL);
@@ -403,7 +407,7 @@ class AnalisisTelurService
         $case = $this->caseJenis();
 
         return $this->basePenjualan($dari, $sampai)
-            ->selectRaw("DATE(p.tanggal) as tgl, {$case} as jenis, SUM(d.subtotal) as omset, SUM(d.qty) as qty, SUM(d.qty * COALESCE(b.harga_beli, 0)) as hpp")
+            ->selectRaw("DATE(COALESCE(p.tanggal_pembukuan, p.tanggal)) as tgl, {$case} as jenis, SUM(d.subtotal) as omset, SUM(d.qty) as qty, SUM(d.qty * COALESCE(b.harga_beli, 0)) as hpp")
             ->groupBy('tgl', 'jenis')
             ->get();
     }

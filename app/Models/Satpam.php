@@ -72,6 +72,20 @@ class Satpam extends Model
         return static::penjualanTerbukaPabrik($this->pabrik);
     }
 
+    /**
+     * Batasi nota sesuai pembukaan setoran.
+     *  - sampai_penjualan_id > 0  : pembukaan lama, nota dikunci sampai id itu.
+     *  - sampai_penjualan_id <= 0 : terus menghitung semua nota yang masuk sampai tombol ditekan di HP.
+     */
+    public static function batasiSetoran(Builder $q, SatpamSetoran $setoran): Builder
+    {
+        if ((int) $setoran->sampai_penjualan_id > 0) {
+            $q->where('id', '<=', (int) $setoran->sampai_penjualan_id);
+        }
+
+        return $q;
+    }
+
     /** Nota satpam ini saja yang belum disetor. */
     public function penjualanTerbuka(): Builder
     {
@@ -156,7 +170,7 @@ class Satpam extends Model
     }
 
     // ------------------------------------------------------------------
-    // Buka kunci tutup buku (dipanggil orang kantor)
+    // Buka kunci tutup buku (orang kantor atau jadwal otomatis)
     // ------------------------------------------------------------------
 
     /** Pembukaan kunci yang masih menunggu ditekan di HP, atau null. Berlaku untuk seluruh pabrik. */
@@ -169,28 +183,31 @@ class Satpam extends Model
     }
 
     /**
-     * Mengunci angka setoran seluruh pabrik sampai nota terakhir saat ini, jadi penjualan
-     * yang terjadi sesudahnya tidak ikut ditutup.
+     * Membuka tombol setoran untuk seluruh pabrik. Penjualan yang masuk SETELAH pembukaan
+     * tetap ikut terhitung (sampai_penjualan_id = 0) sampai tombol ditekan di HP atau
+     * dikunci lagi dari web.
+     *
+     * @param bool $izinkanKosong true untuk jadwal otomatis (boleh dibuka walau belum ada penjualan)
      */
-    public function bukaTutupBuku(?int $userId): ?SatpamSetoran
+    public function bukaTutupBuku(?int $userId, bool $izinkanKosong = false): ?SatpamSetoran
     {
         if ($ada = $this->setoranDibuka()) {
             return $ada;
         }
 
         $q = $this->penjualanTerbukaPabrikIni();
-        $maxId = (clone $q)->max('id');
+        $jumlah = (int) (clone $q)->count();
 
-        if (! $maxId) {
+        if ($jumlah === 0 && ! $izinkanKosong) {
             return null; // belum ada penjualan yang bisa disetor
         }
 
         return SatpamSetoran::create([
             'pabrik'              => $this->pabrik,
             'status'              => 'DIBUKA',
-            'sampai_penjualan_id' => $maxId,
-            'total'               => (clone $q)->where('id', '<=', $maxId)->sum('total'),
-            'jumlah_nota'         => (clone $q)->where('id', '<=', $maxId)->count(),
+            'sampai_penjualan_id' => 0,   // 0 = terus menghitung, tidak dikunci ke nota tertentu
+            'total'               => (clone $q)->sum('total'),
+            'jumlah_nota'         => $jumlah,
             'dibuka_oleh'         => $userId,
             'dibuka_pada'         => now(),
         ]);
