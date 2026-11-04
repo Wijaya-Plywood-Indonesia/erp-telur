@@ -53,6 +53,9 @@ return [
         'harga_kg'       => (float) env('SATPAM_CEPROT_HARGA_KG', 12000),
     ],
 
+    // true = nota dari app satpam baru boleh divalidasi admin setelah setorannya ditutup di HP.
+    'validasi_setelah_setor' => env('SATPAM_VALIDASI_SETELAH_SETOR', true),
+
     // Jam tombol setoran dibuka otomatis tiap hari (WIB). Kosongkan untuk mematikan.
     'buka_otomatis' => env('SATPAM_BUKA_OTOMATIS', '07:30'),
 

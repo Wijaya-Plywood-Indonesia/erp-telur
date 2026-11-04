@@ -75,6 +75,51 @@ class Penjualan extends Model
         );
     }
 
+    /**
+     * Nota yang perlu divalidasi admin sekarang: nota ruko (non-satpam), atau nota satpam
+     * yang setorannya sudah ditutup. Belum divalidasi dan tidak dibatalkan.
+     */
+    public function scopePerluValidasi($query)
+    {
+        return $query->whereNull('penjualans.validated_by')
+            ->where(function ($w) {
+                $w->whereNull('penjualans.status_transaksi')
+                    ->orWhere('penjualans.status_transaksi', '!=', 'DIBATALKAN');
+            })
+            ->where(function ($w) {
+                $w->whereNull('penjualans.satpam_id')
+                    ->orWhereNotNull('penjualans.satpam_setoran_id');
+            });
+    }
+
+    /** Nota satpam yang setorannya belum ditutup: jangan divalidasi dulu. */
+    public function scopeMenungguSetoran($query)
+    {
+        return $query->whereNull('penjualans.validated_by')
+            ->where(function ($w) {
+                $w->whereNull('penjualans.status_transaksi')
+                    ->orWhere('penjualans.status_transaksi', '!=', 'DIBATALKAN');
+            })
+            ->whereNotNull('penjualans.satpam_id')
+            ->whereNull('penjualans.satpam_setoran_id');
+    }
+
+    /** dibatalkan | divalidasi | tunggu_setoran | perlu_validasi */
+    public function getStatusValidasiAttribute(): string
+    {
+        if ($this->status_transaksi === 'DIBATALKAN') {
+            return 'dibatalkan';
+        }
+        if ($this->validated_by) {
+            return 'divalidasi';
+        }
+        if ($this->satpam_id && ! $this->satpam_setoran_id) {
+            return 'tunggu_setoran';
+        }
+
+        return 'perlu_validasi';
+    }
+
     /** Tanggal yang dipakai laporan: pembukuan kalau ada, kalau tidak tanggal nota. */
     public function getTanggalLaporanAttribute()
     {
