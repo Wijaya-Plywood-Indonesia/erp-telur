@@ -23,11 +23,12 @@ class LaporanPenjualanService
     {
         return Penjualan::query()
             ->whereNotNull('validated_by')
+            ->sudahDisetor()
             ->when($from && $to, fn ($q) =>
-                $q->whereBetween('created_at', [
+                $q->tanggalPembukuanAntara(
                     $from . ' 00:00:00',
                     $to . ' 23:59:59',
-                ])
+                )
             )
             ->with(['user', 'validator']);
     }
@@ -38,7 +39,7 @@ class LaporanPenjualanService
             ->get()
             ->map(fn ($p) => [
                 'no_nota'           => $p->no_nota,
-                'tanggal'           => $p->tanggal,
+                'tanggal'           => $p->tanggal_laporan,
                 'nama_customer'     => $p->nama_customer,
                 'member'            => $p->is_member ? 'MEMBER' : 'REGULAR',
                 'metode_pembayaran' => $p->metode_pembayaran,
@@ -56,7 +57,7 @@ class LaporanPenjualanService
             ->get()
             ->map(fn ($p) => [
                 'no_nota'       => $p->no_nota,
-                'tanggal'       => $p->tanggal,
+                'tanggal'       => $p->tanggal_laporan,
                 'nama_customer' => $p->nama_customer,
                 'kasir'         => $p->user?->name,
                 'status'        => $p->status_transaksi,
@@ -72,7 +73,7 @@ class LaporanPenjualanService
             ->map(fn ($p) => [
                 'header' => [
                     'no_nota'       => $p->no_nota,
-                    'tanggal'       => $p->tanggal,
+                    'tanggal'       => $p->tanggal_laporan,
                     'customer'      => $p->nama_customer,
                     'total'         => $p->total,
                     'kasir'         => $p->user?->name,

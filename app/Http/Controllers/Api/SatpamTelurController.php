@@ -343,15 +343,20 @@ class SatpamTelurController extends Controller
                 $this->fail('Total berubah, periksa lagi', 409, ['total_baru' => $total]);
             }
 
+            $waktuTutup = now();
+
             Penjualan::whereIn('id', $ids)->update(['satpam_setoran_id' => $setoran->id]);
 
             $setoran->update([
                 'status'            => 'SELESAI',
                 'total'             => $total,
                 'jumlah_nota'       => $ids->count(),
-                'ditutup_pada'      => now(),
+                'ditutup_pada'      => $waktuTutup,
                 'ditutup_satpam_id' => $satpam->id,
             ]);
+
+            // Nota-nota ini baru masuk pembukuan sekarang: set tanggal pembukuan & koreksi tanggal jurnalnya.
+            app(\App\Services\TanggalPembukuanService::class)->terapkan($ids, $waktuTutup);
 
             return ['total' => $total, 'jumlah_nota' => $ids->count()];
         });

@@ -59,7 +59,9 @@ class JurnalPenjualanTelurService
 
         DB::transaction(function () use ($penjualan, $itemTelur, $itemLain, $userId) {
 
-            $tgl      = $penjualan->tanggal->toDateString();
+            // Nota satpam: tanggal jurnal = tanggal setoran ditutup (kalau sudah disetor).
+            // Kalau belum, memakai tanggal nota dulu; TanggalPembukuanService mengoreksinya saat setoran ditutup.
+            $tgl      = ($penjualan->tanggal_pembukuan ?? $penjualan->tanggal)->toDateString();
             $nota     = $penjualan->no_nota;
             $customer = $penjualan->nama_customer ?: 'Pelanggan';
             $noJurnal = $this->nextNomorJurnal();

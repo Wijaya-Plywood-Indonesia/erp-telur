@@ -32,8 +32,8 @@ class PenjualanExportController extends Controller
 
     public function data_detail($penjualan_id)
     {
+        // Rincian barang mengikuti nota induknya (yang sudah difilter berdasarkan tanggal pembukuan).
         return DetailPenjualan::where('penjualan_id', $penjualan_id)
-            ->whereBetween('created_at', [$this->dariTanggal.' 00:00:00', $this->sampaiTanggal.' 23:59:59'])
             ->get()
             ->map(function ($detail) {
 
@@ -53,7 +53,8 @@ class PenjualanExportController extends Controller
 
     public function loadLaporan()
     {
-        $this->laporanGabungan = Penjualan::whereBetween('created_at', [$this->dariTanggal.' 00:00:00', $this->sampaiTanggal.' 23:59:59'])
+        $this->laporanGabungan = Penjualan::tanggalPembukuanAntara($this->dariTanggal.' 00:00:00', $this->sampaiTanggal.' 23:59:59')
+            ->sudahDisetor()
             ->whereNotNull('validated_by')
             ->with(['user', 'validator'])
             ->get()
@@ -63,7 +64,7 @@ class PenjualanExportController extends Controller
                 // dd($data_detail);
                 return [
                     'no_nota' => $p->no_nota,
-                    'tanggal' => $p->tanggal,
+                    'tanggal' => $p->tanggal_laporan,
                     'nama_customer' => $p->nama_customer,
                     'member' => $p->is_member ? 'MEMBER' : 'REGULAR',
                     'alamat' => $p->alamat,
@@ -88,7 +89,8 @@ class PenjualanExportController extends Controller
 
     public function loadLaporanDetail()
     {
-        $this->laporanGabungan = Penjualan::whereBetween('created_at', [$this->dariTanggal.' 00:00:00', $this->sampaiTanggal.' 23:59:59'])
+        $this->laporanGabungan = Penjualan::tanggalPembukuanAntara($this->dariTanggal.' 00:00:00', $this->sampaiTanggal.' 23:59:59')
+            ->sudahDisetor()
             ->whereNotNull('validated_by')
             ->with(['user', 'validator'])
 
@@ -96,7 +98,7 @@ class PenjualanExportController extends Controller
             ->map(function ($p) {
                 return [
                     'no_nota' => $p->no_nota,
-                    'tanggal' => $p->tanggal,
+                    'tanggal' => $p->tanggal_laporan,
                     'nama_customer' => $p->nama_customer,
                     'kasir' => $p->user?->name,
                     'status_transaksi' => $p->status_transaksi,

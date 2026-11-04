@@ -10,6 +10,7 @@ class Penjualan extends Model
     protected $fillable = [
         'no_nota',
         'tanggal',
+        'tanggal_pembukuan',
         'nama_customer',
         'is_member',
         'alamat',
@@ -36,6 +37,7 @@ class Penjualan extends Model
 
     protected $casts = [
         'tanggal' => 'datetime',
+        'tanggal_pembukuan' => 'datetime',
         'total' => 'decimal:2',
         'bayar' => 'decimal:2',
         'bayar_tunai' => 'decimal:2',
@@ -45,6 +47,39 @@ class Penjualan extends Model
         'user_id' => 'integer',
         'validated_by' => 'integer',
     ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | SCOPE: tanggal pembukuan & status setor (nota dari app satpam)
+    |--------------------------------------------------------------------------
+    | Nota satpam baru "masuk pembukuan" saat setorannya ditutup. Sampai saat itu
+    | tanggal_pembukuan kosong. Nota POS web tidak punya satpam, jadi selalu dihitung
+    | dan tanggalnya tidak berubah.
+    */
+
+    /** Nota satpam yang belum disetor tidak ikut; nota non-satpam selalu ikut. */
+    public function scopeSudahDisetor($query)
+    {
+        return $query->where(function ($w) {
+            $w->whereNull('penjualans.satpam_id')
+                ->orWhereNotNull('penjualans.satpam_setoran_id');
+        });
+    }
+
+    /** Rentang berdasarkan tanggal pembukuan; kalau kosong memakai created_at (perilaku lama). */
+    public function scopeTanggalPembukuanAntara($query, string $dari, string $sampai)
+    {
+        return $query->whereRaw(
+            'COALESCE(penjualans.tanggal_pembukuan, penjualans.created_at) BETWEEN ? AND ?',
+            [$dari, $sampai]
+        );
+    }
+
+    /** Tanggal yang dipakai laporan: pembukuan kalau ada, kalau tidak tanggal nota. */
+    public function getTanggalLaporanAttribute()
+    {
+        return $this->tanggal_pembukuan ?? $this->tanggal;
+    }
 
     /*
     |--------------------------------------------------------------------------
