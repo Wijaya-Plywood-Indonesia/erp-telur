@@ -41,7 +41,7 @@ class MutasiAyamService
     /**
      * JURNAL: AYAM MATI
      * Debet  : 5400-02 (BEBAN KEMATIAN AYAM)
-     * Kredit : 1420-XX (Persediaan Ayam KD X - Sebesar harga_beli Barang)
+     * Kredit : 1400-XX (Persediaan Ayam KD X - Sebesar harga_beli Barang)
      */
     /* STREAMING_CHUNK:Building mortality journal entries querying Barang via kode_barang & id_sub_anak_akun */
     public function buatJurnalAyamMati(string $tanggal, int $userId): void
@@ -71,7 +71,13 @@ class MutasiAyamService
             $ekorMati = (int) $row->jumlah_mati;
 
             $subAkun = $ayam->subAnakAkun;
-            $kodeAkunKredit = $subAkun?->kode_sub_anak_akun ?? '1420-00';
+            $kodeAkunKredit = $subAkun?->kode_sub_anak_akun;
+
+            // Jangan pernah pakai akun fallback: jurnal ke akun yang tidak ada di master
+            // membuat stok ayam & neraca tidak sinkron.
+            if (!$kodeAkunKredit) {
+                throw new Exception("Batch ayam '{$ayam->nama_batch}' belum terhubung ke akun persediaan (1400-xx). Hubungkan dulu di menu Kandang > Ayam.");
+            }
             $cleanBatchName = trim(preg_replace('/\s*\(\d+[^)]*\)/i', '', $ayam->nama_batch));
 
             // Query Master Barang menggunakan nama kolom yang tepat
@@ -117,7 +123,7 @@ class MutasiAyamService
             'harga'       => $totalRupiahBeban,
         ]);
 
-        // ── B. KREDIT: Persediaan Masing-masing Ayam KD X (1420-XX) ──
+        // ── B. KREDIT: Persediaan Masing-masing Ayam KD X (1400-XX) ──
         $urut = 1;
         foreach ($kreditItems as $kredit) {
             $this->createJurnalEntry($nextJurnal, $tanggal, $nota, "{$kredit['no_akun']} Ayam Mati {$tglFormatted}", $kredit['no_akun'], $kredit['nama_akun'], 'k', $userId, [
