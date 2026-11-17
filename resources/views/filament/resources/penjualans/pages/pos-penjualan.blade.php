@@ -24,7 +24,7 @@
                 <div class="h-8 w-px bg-gray-100 dark:bg-gray-800 hidden sm:block"></div>
                 <div class="flex items-center gap-2">
                     <span class="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Waktu:</span>
-                    <input type="datetime-local" wire:model.live="tanggal" class="px-2 py-1 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded text-xs font-medium text-gray-600 dark:text-gray-300 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all" />
+                    <input type="date" wire:model.live="tanggal" class="px-2 py-1 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded text-xs font-medium text-gray-600 dark:text-gray-300 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all" />
                 </div>
             </div>
             <div class="hidden lg:flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-700">
