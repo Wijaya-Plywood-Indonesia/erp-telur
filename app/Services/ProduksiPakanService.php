@@ -27,7 +27,7 @@ class ProduksiPakanService
         ['kode' => '1413-00', 'nama' => 'Telur Bentes',  'nilai' => 10000],
     ];
 
-    const NILAI_HUTANG_GAJI    = 650000;
+    const NILAI_HUTANG_GAJI    = 575000;
     const NILAI_HUTANG_LISTRIK = 50000;
 
     private array $akunCache     = [];
