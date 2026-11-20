@@ -61,29 +61,49 @@ class JurnalUmum extends Page implements HasActions, HasForms
     }
 
     protected function getHeaderActions(): array
-    {
-        return [
-            Action::make('exportExcel')
+{
+    return [
+        Action::make('exportExcel')
             ->label('Export Excel')
             ->icon('heroicon-o-document-arrow-down')
             ->color('success')
-            ->action(function () {
-                // Pakai filter yang sudah DITERAPKAN 
-                // supaya hasil export sama dengan tabel yang sedang dilihat
-                $dari = $this->filterTglDari ?: null;
-                $sampai = $this->filterTglSampai ?: null;
+            ->modalHeading('Export Jurnal Umum')
+            ->modalDescription('Pilih rentang tanggal. Kosongkan untuk mengekspor semua data.')
+            ->modalSubmitActionLabel('Download')
+            ->modalWidth(Width::Medium)
+            // Opsional: isi awal mengikuti filter yang sedang aktif di halaman
+            ->fillForm(fn () => [
+                'dari'   => $this->filterTglDari ?: null,
+                'sampai' => $this->filterTglSampai ?: null,
+            ])
+            ->schema([
+                Grid::make(2)->schema([
+                    DatePicker::make('dari')
+                        ->label('Dari Tanggal')
+                        ->native(false)
+                        ->displayFormat('d/m/Y'),
+                    DatePicker::make('sampai')
+                        ->label('Sampai Tanggal')
+                        ->native(false)
+                        ->displayFormat('d/m/Y')
+                        ->afterOrEqual('dari'),
+                ]),
+            ])
+            ->action(function (array $data) {
+                $dari   = $data['dari'] ?? null;
+                $sampai = $data['sampai'] ?? null;
 
                 $periode = ($dari || $sampai)
-                ? ($dari ?? 'awal') . '_sd_' . ($sampai ?? 'akhir')
-                : now()->format('Y-m-d');
+                    ? ($dari ?? 'awal') . '_sd_' . ($sampai ?? 'akhir')
+                    : now()->format('Y-m-d');
 
                 return Excel::download(
                     new JurnalUmumExport($dari, $sampai),
                     "Jurnal_Umum_{$periode}.xlsx"
                 );
             }),
-        ];
-    }
+    ];
+}
 
     public function mount(): void
     {
