@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\AnakAkun;
 use App\Models\SubAnakAkun;
 use App\Models\JurnalUmum as JurnalModel;
+use App\Exports\JurnalUmumExport;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -21,6 +22,8 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Set;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Maatwebsite\Excel\Facades\Excel;
+
 use UnitEnum;
 
 class JurnalUmum extends Page implements HasActions, HasForms
@@ -55,6 +58,31 @@ class JurnalUmum extends Page implements HasActions, HasForms
     public function getMaxContentWidth(): Width|string|null
     {
         return Width::Full;
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('exportExcel')
+            ->label('Export Excel')
+            ->icon('heroicon-o-document-arrow-down')
+            ->color('success')
+            ->action(function () {
+                // Pakai filter yang sudah DITERAPKAN 
+                // supaya hasil export sama dengan tabel yang sedang dilihat
+                $dari = $this->filterTglDari ?: null;
+                $sampai = $this->filterTglSampai ?: null;
+
+                $periode = ($dari || $sampai)
+                ? ($dari ?? 'awal') . '_sd_' . ($sampai ?? 'akhir')
+                : now()->format('Y-m-d');
+
+                return Excel::download(
+                    new JurnalUmumExport($dari, $sampai),
+                    "Jurnal_Umum_{$periode}.xlsx"
+                );
+            }),
+        ];
     }
 
     public function mount(): void
