@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Log;
 class ProduksiTelurService
 {
     const KODE_HUTANG_GAJI   = '2210-01';
-    const NILAI_HUTANG_GAJI  = 650000;
+    const NILAI_HUTANG_GAJI  = 575000;
     const KODE_SELISIH       = '5800-02';
 
     /**
