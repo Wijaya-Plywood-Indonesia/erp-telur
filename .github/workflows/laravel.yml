@@ -14,7 +14,7 @@ jobs:
   # JOB 1: TESTING (CI)
   # ──────────────────────────────────────────────
   laravel-tests:
-    name: 🧪 Run Tests (CI)
+    name: Run Tests (CI)
     runs-on: ubuntu-latest
 
     services:
@@ -102,7 +102,7 @@ jobs:
   # JOB 2: BUILD & PUSH DOCKER IMAGE KE GHCR
   # ──────────────────────────────────────────────
   build-image:
-    name: 🏗️ Build & Push Image
+    name: Build & Push Image
     needs: laravel-tests
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -144,7 +144,7 @@ jobs:
   # JOB 3: DEPLOY RINGAN KE VPS
   # ──────────────────────────────────────────────
   deploy-production:
-    name: 🚀 Deploy to telur.wijayaplywoods.com
+    name: Deploy to telur.wijayaplywoods.com
     needs: build-image
     runs-on: ubuntu-latest
     environment: production
