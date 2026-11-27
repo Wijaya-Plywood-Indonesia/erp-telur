@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,5 +29,9 @@ class AppServiceProvider extends ServiceProvider
                 session()->put('landing_analisis', true);
             }
         });
+
+	if (str_starts_with(config('app.url'), 'https://')) {
+		URL::forceScheme('https');
+	}
     }
 }

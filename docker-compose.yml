@@ -47,6 +47,9 @@ services:
     image: mysql:8.0
     container_name: erp-db
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3307:3306"
+    mem_limit: 512m
     environment:
       MYSQL_DATABASE: ${DB_DATABASE}
       MYSQL_USER: ${DB_USERNAME}
