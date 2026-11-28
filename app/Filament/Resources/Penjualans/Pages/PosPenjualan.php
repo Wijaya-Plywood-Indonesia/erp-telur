@@ -73,7 +73,7 @@ class PosPenjualan extends Page
         }
 
         $this->no_nota = $this->generateNoNota();
-        $this->tanggal = now()->format('Y-m-d\TH:i');
+        $this->tanggal = now()->format('Y-m-d');
     }
 
     public function generateNoNota()
@@ -467,12 +467,11 @@ class PosPenjualan extends Page
                     ? ($this->bayar_tunai + $this->bayar_transfer)
                     : ($this->bayar ?? 0);
 
-                // Tanggal nota: jika tanggal yang dipilih adalah HARI INI, pakai waktu saat tombol simpan ditekan
-                // (jam asli transaksi). Jika kasir sengaja memilih tanggal lain (input mundur), dipakai apa adanya.
-                $tanggalSimpan = filled($this->tanggal) ? \Carbon\Carbon::parse($this->tanggal) : now();
-                if ($tanggalSimpan->isToday()) {
-                    $tanggalSimpan = now();
-                }
+                // Tanggal nota: kasir hanya bisa memilih TANGGAL. Jam selalu jam saat tombol simpan ditekan
+                // (diambil dari server, jadi jam tidak bisa diubah dari layar POS).
+                $tanggalSimpan = filled($this->tanggal)
+                    ? \Carbon\Carbon::parse($this->tanggal)->setTimeFrom(now())
+                    : now();
 
                 // Menghapus 'toko_id' dari pembuatan data penjualan
                 $penjualan = Penjualan::create([
@@ -553,7 +552,7 @@ class PosPenjualan extends Page
 
         // Tanggal hari ini ikut disegarkan; tanggal mundur pilihan kasir dipertahankan
         if (filled($this->tanggal) && \Carbon\Carbon::parse($this->tanggal)->isToday()) {
-            $this->tanggal = now()->format('Y-m-d\TH:i');
+            $this->tanggal = now()->format('Y-m-d');
         }
     }
 
