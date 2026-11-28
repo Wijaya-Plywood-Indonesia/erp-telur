@@ -1,16 +1,14 @@
 # Letakkan di ROOT project (sejajar dengan artisan & composer.json).
 # Compose otomatis membaca .env di folder yang sama untuk variabel ${...}.
-# Catatan: port 80/443 di VPS dipakai proyek lain (monitoring),
-# jadi ERP dibuka lewat port 8443.
 
 services:
-  # --- Resepsionis: HTTPS di port 8443 ---
+  # --- Resepsionis: HTTP internal via proxy-net ---
   nginx:
     build:
       context: .
       dockerfile: docker/nginx/Dockerfile
       additional_contexts:
-        app: "service:app"     # build service "app" dulu, lalu ambil public/-nya
+        app: "service:erp-app"
     container_name: erp-nginx
     restart: unless-stopped
     expose:
@@ -23,26 +21,27 @@ services:
       - default
       - proxy-net
     depends_on:
-      - app
+      - erp-app
 
   # --- Koki: Laravel (kode sudah ada di dalam image) ---
   erp-app:
-      image: ghcr.io/wijaya-plywood-indonesia/erp-telur:latest
-      container_name: erp-app
-      restart: unless-stopped
-      working_dir: /var/www/html
-      env_file: .env
-      environment:
-        TZ: Asia/Jakarta
-      volumes:
-        - ./.env:/var/www/html/.env
-        - app-storage:/var/www/html/storage
-      networks:
-        - default
-        - proxy-net
-      depends_on:
-        db:
-          condition: service_healthy
+    image: ghcr.io/wijaya-plywood-indonesia/erp-telur:latest
+    container_name: erp-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    env_file: .env
+    environment:
+      TZ: Asia/Jakarta
+    volumes:
+      - ./.env:/var/www/html/.env
+      - app-storage:/var/www/html/storage
+    networks:
+      - default
+      - proxy-net
+    depends_on:
+      db:
+        condition: service_healthy
+
   # --- Gudang: MySQL (tidak dibuka ke internet) ---
   db:
     image: mysql:8.0
@@ -62,7 +61,7 @@ services:
     networks:
       - default
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASSWORD}"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASSWORD}" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -70,7 +69,7 @@ services:
   # --- Alat bantu SSL: tidak jalan otomatis, hanya dipanggil manual ---
   certbot:
     image: certbot/dns-cloudflare
-    profiles: ["tools"]
+    profiles: [ "tools" ]
     entrypoint: certbot
     volumes:
       - certbot-conf:/etc/letsencrypt
