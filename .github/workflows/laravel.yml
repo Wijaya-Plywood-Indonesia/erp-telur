@@ -109,7 +109,7 @@ jobs:
           timeout: 30s
           script: |
             set -euo pipefail
-            echo "SSH connected as $(whoami) on $(hostname)"
+            echo "SSH connection OK"
 
   # ──────────────────────────────────────────────
   # JOB 2: BUILD & PUSH DOCKER IMAGE KE GHCR
