@@ -327,26 +327,15 @@ class ProduksiTelurPage extends Page
         Log::info('DEBUG kandangPakan', $this->kandangPakan);
 
         DB::transaction(function () use ($userId) {
-            $existing = ProduksiTelur::whereDate('tanggal', $this->tanggal)
-                ->where('created_by', '!=', $userId)
-                ->exists();
+            $produksi = ProduksiTelur::firstOrNew(['tanggal' => $this->tanggal]);
 
-            if ($existing && ! $this->isSuperAdmin) {
-                Notification::make()
-                    ->title('Data Sudah Ada')
-                    ->body('Data untuk tanggal ini sudah diinput oleh pengguna lain.')
-                    ->danger()
-                    ->send();
-                return;
+            // Pencatat awal tetap tercatat, tidak ditimpa saat data dibuka & diedit ulang
+            if (! $produksi->exists) {
+                $produksi->created_by = $userId;
             }
 
-            $produksi = ProduksiTelur::updateOrCreate(
-                ['tanggal' => $this->tanggal],
-                [
-                    'created_by' => $userId,
-                    'is_locked'  => true, // ✅ terkunci otomatis setelah disimpan
-                ]
-            );
+            $produksi->is_locked = true; // ✅ terkunci otomatis setelah disimpan
+            $produksi->save();
 
             $this->produksiTelurId = $produksi->id;
 
