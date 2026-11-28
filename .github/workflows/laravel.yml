@@ -1,17 +1,20 @@
-name: Telur CI/CD
+name: Automate Ci/CD for Hen Project
 
 on:
   push:
     branches: ["main", "develop"]
-  create:
     tags: ["v*"]
-    
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   # ──────────────────────────────────────────────
   # JOB 1: TESTING (CI)
   # ──────────────────────────────────────────────
   laravel-tests:
-    name: 🧪 Run Tests (CI)
+    name: Run Tests (CI)
     runs-on: ubuntu-latest
 
     services:
@@ -95,90 +98,100 @@ jobs:
           fi
           echo "✅ Semua migration sudah berjalan."
 
-  deploy-production:
-    name: Deploy to telur.wijayaplywoods.com
-    needs: laravel-tests
-    # HANYA jalan jika kamu membuat TAG (misal v1.0)
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup PHP & Node
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-
-      - name: Install Composer Prod
-        run: composer install --no-dev --optimize-autoloader --no-interaction
-
-      - name: Build Frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Create Deployment Package
-        run: |
-          set -euo pipefail
-          BUILD_DIR=./build_deploy
-          mkdir -p "$BUILD_DIR"
-          
-          # rsync memilah file, abaikan storage dan .env agar data aman
-          rsync -a --delete \
-            --exclude '.git/' \
-            --exclude '.github/' \
-            --exclude 'node_modules/' \
-            --exclude 'tests/' \
-            --exclude '.env' \
-            --exclude 'storage/' \
-            ./ "$BUILD_DIR/"
-            
-          (cd "$BUILD_DIR" && zip -r ../deploy.zip . -q)
-
-      - name: Upload to Server
-        uses: appleboy/scp-action@v0.1.7
+      - name: Test SSH connection to VPS
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
-          port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "deploy.zip"
-          target: "/home/${{ secrets.SSH_USERNAME }}"
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          port: ${{ secrets.SSH_PORT }}
+          timeout: 30s
+          script: |
+            set -euo pipefail
+            echo "SSH connection OK"
 
-      - name: Execute Server Commands
+  # ──────────────────────────────────────────────
+  # JOB 2: BUILD & PUSH DOCKER IMAGE KE GHCR
+  # ──────────────────────────────────────────────
+  build-image:
+    name: Build & Push Image
+    needs: laravel-tests
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔑 Login ke GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Ekstrak Metadata & Tag Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: 🚀 Build & Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────
+  # JOB 3: DEPLOY RINGAN KE VPS
+  # ──────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to telur.wijayaplywoods.com
+    needs: build-image
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: ⚡ Pull & Restart Container di VPS
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
-            # Tentukan folder target
-            TARGET_DIR="/home/${{ secrets.SSH_USERNAME }}/telur.wijayaplywoods.com"
-            cd $TARGET_DIR
-            
-            # 1. Mode Perbaikan
-            php artisan down || true
-            
-            # 2. Hapus file lama KECUALI storage dan .env
-            find . -mindepth 1 -maxdepth 1 ! -name 'storage' ! -name '.env' -exec rm -rf {} \;
-            
-            # 3. Ekstrak file baru
-            unzip -oq ../deploy.zip -d .
-            
-            # 4. Optimasi Laravel
-            php artisan optimize:clear
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
-            
-            # 5. Migrasi Database (Aman, hanya menambah yang baru)
-            php artisan migrate --force
-            
-            # 6. Online Kembali
-            php artisan up
-            
-            # Hapus sisa file ZIP
-            rm ../deploy.zip
-            echo "🚀 Deployment Akuntansi Sukses!"
+            set -euo pipefail
+            cd /var/www/erp-telur
+
+            # 1. Tarik image yang sudah jadi (tanpa beban build di VPS)
+            docker compose pull erp-app
+
+            # 2. Ganti container dengan image baru
+            docker compose up -d --no-build erp-app
+
+            # 3. Optimasi Laravel & Migrasi Database
+            docker exec erp-app php artisan optimize:clear
+            docker exec erp-app php artisan config:cache
+            docker exec erp-app php artisan route:cache
+            docker exec erp-app php artisan view:cache
+            docker exec erp-app php artisan migrate --force
+
+            # 4. Bersihkan sisa image lama agar disk VPS tetap lega
+            docker image prune -f
+
+            echo "✅ Deployment Telur Sukses"

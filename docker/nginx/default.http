@@ -1,0 +1,32 @@
+# ============================================================
+# TAHAP 1 SAJA: HTTP tanpa SSL.
+# Dipakai hanya untuk menerbitkan sertifikat Let's Encrypt
+# pertama kali (karena default.conf butuh file sertifikat
+# yang belum ada). GANTI "example.com" dengan domain Anda.
+# ============================================================
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com www.example.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    root /var/www/html/public;
+    index index.php;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass app:9000;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}

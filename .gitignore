@@ -27,3 +27,4 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 RukoPOS.zip
+docker/certbot/cloudflare.ini
